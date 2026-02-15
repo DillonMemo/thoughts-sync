@@ -713,16 +713,16 @@ export function GameWrapper({ characterType, playerName, matchId }: GameWrapperP
   const [screen, setScreen] = useState<"playing" | "result">("playing")
   const [result, setResult] = useState<GameResult | null>(null)
   const playerActionsRef = useRef(0)
-  const totalTurnsRef = useRef(-1) // startGame()의 초기 TURN_CHANGED 보정 (-1로 시작)
+  const roundNumberRef = useRef(0) // TurnSystem.roundNumber 직접 참조
   const isCompletingRef = useRef(false) // GAME_OVER 중복 호출 방어
 
-  // 플레이어 액션(무기 발사) 카운팅
+  // 플레이어 액션(무기 발사) 카운팅 + 라운드 추적
   useEffect(() => {
     const handleWeaponFired = () => {
       playerActionsRef.current += 1
     }
-    const handleTurnChanged = () => {
-      totalTurnsRef.current += 1
+    const handleTurnChanged = (data: { round: number }) => {
+      roundNumberRef.current = data.round
     }
 
     EventBus.on(GameEvents.WEAPON_FIRED, handleWeaponFired)
@@ -753,7 +753,7 @@ export function GameWrapper({ characterType, playerName, matchId }: GameWrapperP
               matchId,
               winnerId: data.winnerId,
               playerActions: playerActionsRef.current,
-              totalTurns: totalTurnsRef.current,
+              totalTurns: roundNumberRef.current,
             }),
           })
 
@@ -833,11 +833,11 @@ export function GameWrapper({ characterType, playerName, matchId }: GameWrapperP
 ```
 
 핵심 변경 사항:
-- `playerActionsRef`, `totalTurnsRef`: `useRef`로 관리 (리렌더링 방지)
-- `totalTurnsRef` 초기값 `-1`: `startGame()`의 초기 `TURN_CHANGED` 이벤트 보정 (실제 턴 수 = 이벤트 횟수 - 1)
+- `playerActionsRef`, `roundNumberRef`: `useRef`로 관리 (리렌더링 방지)
+- `roundNumberRef`: `TURN_CHANGED` 페이로드의 `round` 값을 직접 참조 (`TurnSystem.roundNumber`와 동일)
 - `isCompletingRef`: `GAME_OVER` 중복 호출 방어 (`DamageSystem.checkGameOver()`가 동일 프레임에 여러 번 호출될 수 있음)
 - `WEAPON_FIRED` 이벤트 구독으로 발사 횟수 카운트
-- `TURN_CHANGED` 이벤트 구독으로 턴 수 카운트
+- `TURN_CHANGED` 이벤트 구독으로 라운드 번호 추적 (카운팅 아닌 직접 참조)
 - `handleGameOver`: API 호출 → 응답 데이터 `console.info` 출력 → 3초 대기 → 로비 이동
 - `handleReturnToLobby`: abandon API 호출 → 로비 이동
 - 기존 3초 자동 리다이렉트 useEffect 제거 (handleGameOver 내부에서 setTimeout으로 대체)
