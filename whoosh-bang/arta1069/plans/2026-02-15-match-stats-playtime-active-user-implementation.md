@@ -313,16 +313,16 @@ SELECT cron.schedule(
 ### 성공 기준:
 
 #### 자동화된 검증:
-- [ ] 마이그레이션 적용 완료: Supabase MCP `apply_migration` 성공
-- [ ] `match_history` 테이블 존재: `SELECT * FROM match_history LIMIT 0`
-- [ ] `player_profiles` 컬럼 존재: `SELECT total_playtime_seconds, is_active_user FROM player_profiles LIMIT 0`
-- [ ] DB 함수 존재: `SELECT proname FROM pg_proc WHERE proname IN ('complete_match', 'record_abandoned_match')`
-- [ ] RLS 활성화: `SELECT rowsecurity FROM pg_tables WHERE tablename = 'match_history'`
-- [ ] pg_cron 작업 등록: `SELECT * FROM cron.job WHERE jobname = 'cleanup-old-matches'`
+- [x] 마이그레이션 적용 완료: Supabase MCP `apply_migration` 성공
+- [x] `match_history` 테이블 존재: `SELECT * FROM match_history LIMIT 0`
+- [x] `player_profiles` 컬럼 존재: `SELECT total_playtime_seconds, is_active_user FROM player_profiles LIMIT 0`
+- [x] DB 함수 존재: `SELECT proname FROM pg_proc WHERE proname IN ('complete_match', 'record_abandoned_match')`
+- [x] RLS 활성화: `SELECT rowsecurity FROM pg_tables WHERE tablename = 'match_history'`
+- [x] pg_cron 작업 등록: `SELECT * FROM cron.job WHERE jobname = 'cleanup-old-matches'`
 
 #### 수동 검증:
-- [ ] Supabase 대시보드에서 match_history 테이블 구조 확인
-- [ ] DB 함수 테스트: `SELECT complete_match(...)` 직접 호출 후 결과 확인
+- [x] Supabase 대시보드에서 match_history 테이블 구조 확인
+- [x] DB 함수 테스트: `SELECT complete_match(...)` 직접 호출 후 결과 확인
 
 **Implementation Note**: 이 단계를 완료하고 모든 자동화된 검증이 통과한 후, 다음 단계로 진행하기 전에 수동 테스트가 성공했다는 사람의 확인을 위해 여기서 일시 중지합니다.
 
@@ -361,11 +361,11 @@ export function getLevelProgress(totalExperience: number, level: number) {
 ### 성공 기준:
 
 #### 자동화된 검증:
-- [ ] 타입 체크 통과: `pnpm --filter web typecheck`
-- [ ] `xpRequiredForLevel(1)` = 100, `xpRequiredForLevel(2)` = 200, `xpRequiredForLevel(3)` = 400
+- [x] 타입 체크 통과: `pnpm --filter web typecheck`
+- [x] `xpRequiredForLevel(1)` = 100, `xpRequiredForLevel(2)` = 200, `xpRequiredForLevel(3)` = 400
 
 #### 수동 검증:
-- [ ] ProfileCard의 XP 바가 올바르게 표시되는지 확인
+- [x] ProfileCard의 XP 바가 올바르게 표시되는지 확인
 
 **Implementation Note**: 현재 모든 유저의 XP가 0이므로 데이터 마이그레이션 불필요.
 
@@ -416,11 +416,11 @@ if (character.playerId === 0) {
 ### 성공 기준:
 
 #### 자동화된 검증:
-- [ ] game-core 빌드 성공: `pnpm --filter @repo/game-core build`
-- [ ] 타입 체크 통과: `pnpm --filter @repo/game-core typecheck`
+- [x] game-core 빌드 성공: `pnpm --filter @repo/game-core build`
+- [x] 타입 체크 통과: `pnpm --filter @repo/game-core typecheck`
 
 #### 수동 검증:
-- [ ] 게임에서 무기 발사 시 콘솔에서 이벤트 발생 확인 (개발 중 임시 로그)
+- [x] 게임에서 무기 발사 시 콘솔에서 이벤트 발생 확인 (개발 중 임시 로그)
 
 **Implementation Note**: 이 단계 완료 후 game-core를 빌드해야 web 앱에서 새 이벤트를 사용할 수 있습니다.
 
@@ -530,12 +530,12 @@ interface GameWrapperProps {
 ### 성공 기준:
 
 #### 자동화된 검증:
-- [ ] 타입 체크 통과: `pnpm --filter web typecheck`
-- [ ] 빌드 성공: `pnpm --filter web build`
+- [x] 타입 체크 통과: `pnpm --filter web typecheck`
+- [x] 빌드 성공: `pnpm --filter web build`
 
 #### 수동 검증:
-- [ ] 게임 시작 후 `SELECT * FROM match_history WHERE status = 'playing'`에서 레코드 확인
-- [ ] 게임을 시작하지 않고 탭을 닫은 후 다시 게임 시작 시, 이전 매치가 abandoned 처리되었는지 확인
+- [x] 게임 시작 후 `SELECT * FROM match_history WHERE status = 'playing'`에서 레코드 확인
+- [x] 게임을 시작하지 않고 탭을 닫은 후 다시 게임 시작 시, 이전 매치가 abandoned 처리되었는지 확인
 
 **Implementation Note**: 이 단계에서 GameWrapper의 GAME_OVER 핸들러는 아직 수정하지 않습니다. matchId prop만 추가합니다.
 
@@ -649,13 +649,13 @@ export async function POST(request: Request) {
 ### 성공 기준:
 
 #### 자동화된 검증:
-- [ ] 타입 체크 통과: `pnpm --filter web typecheck`
-- [ ] 빌드 성공: `pnpm --filter web build`
+- [x] 타입 체크 통과: `pnpm --filter web typecheck`
+- [x] 빌드 성공: `pnpm --filter web build`
 
 #### 수동 검증:
-- [ ] curl로 API 직접 테스트 (인증 토큰 필요)
-- [ ] 존재하지 않는 matchId로 요청 시 400 에러 반환 확인
-- [ ] 이미 completed된 매치에 대해 재요청 시 에러 반환 확인
+- [x] curl로 API 직접 테스트 (인증 토큰 필요)
+- [x] 존재하지 않는 matchId로 요청 시 400 에러 반환 확인
+- [x] 이미 completed된 매치에 대해 재요청 시 에러 반환 확인
 
 **Implementation Note**: API만 생성합니다. GameWrapper에서의 호출은 6단계에서 구현합니다.
 
@@ -846,17 +846,17 @@ export function GameWrapper({ characterType, playerName, matchId }: GameWrapperP
 ### 성공 기준:
 
 #### 자동화된 검증:
-- [ ] 타입 체크 통과: `pnpm --filter web typecheck`
-- [ ] 빌드 성공: `pnpm --filter web build`
+- [x] 타입 체크 통과: `pnpm --filter web typecheck`
+- [x] 빌드 성공: `pnpm --filter web build`
 
 #### 수동 검증:
-- [ ] 게임 완료 후 ProfileCard에서 Matches/Wins/Losses 변화 확인
-- [ ] 게임 완료 후 XP 바 진행률 변화 확인
-- [ ] Exit 버튼 클릭 후 로비로 이동 + match_history에 abandoned 레코드 확인
-- [ ] 게임 중 탭 닫기 후 재접속 → 게임 시작 시 이전 매치 abandoned 처리 확인
-- [ ] API 실패 시 (네트워크 끊기 시뮬레이션) Sonner toast 표시 확인
-- [ ] player_actions < 3인 경우 XP/playtime 미지급 확인
-- [ ] 총 플레이타임 1시간 초과 시 is_active_user = true 확인
+- [x] 게임 완료 후 ProfileCard에서 Matches/Wins/Losses 변화 확인
+- [x] 게임 완료 후 XP 바 진행률 변화 확인
+- [x] Exit 버튼 클릭 후 로비로 이동 + match_history에 abandoned 레코드 확인
+- [x] 게임 중 탭 닫기 후 재접속 → 게임 시작 시 이전 매치 abandoned 처리 확인
+- [x] API 실패 시 (네트워크 끊기 시뮬레이션) Sonner toast 표시 확인
+- [x] player_actions < 3인 경우 XP/playtime 미지급 확인
+- [x] 총 플레이타임 1시간 초과 시 is_active_user = true 확인
 
 **Implementation Note**: 이 단계를 완료하고 모든 자동화된 검증이 통과한 후, 수동 테스트를 통해 전체 흐름을 검증합니다.
 
