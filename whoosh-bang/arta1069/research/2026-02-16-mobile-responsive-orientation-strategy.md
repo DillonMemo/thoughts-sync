@@ -9,7 +9,7 @@ tags: [research, codebase, mobile, responsive, orientation, lobby, game, phaser]
 status: complete
 last_updated: 2026-02-16
 last_updated_by: arta1069
-last_updated_note: "사용자 결정 반영 - 요구사항 확정 및 전략 선택"
+last_updated_note: "미해결 질문 결정 반영 - 레이아웃 재구성 방식 및 모바일 세로모드 배치 확정"
 ---
 
 # 연구: 모바일 반응형 UI 및 화면 회전(orientation) 전략
@@ -281,5 +281,34 @@ iOS에서 강제 회전이 불가능하므로, **플랫폼별 최선의 경험**
 
 ## 미해결 질문
 
-1. **로비 모바일 레이아웃**: 절대 위치 기반의 현재 레이아웃을 flex/grid 기반으로 재구성할 것인가, 아니면 모바일 전용 레이아웃을 별도로 만들 것인가?
-2. **모바일 세로모드 로비 배치**: 세로모드에서 ProfileCard, CharacterDisplay, CharacterSelector, PlayButton의 배치를 어떻게 구성할 것인가?
+~~모두 해결됨 (아래 후속 연구 참조)~~
+
+## 후속 연구 2026-02-16T20:39:41+0900
+
+### 미해결 질문 결정
+
+#### 1. 레이아웃 재구성 방식: flex/grid 기반 재구성 채택
+
+- **결정**: 절대 위치(absolute) 기반 → **flex/grid 기반으로 재구성**
+- **불채택**: 모바일 전용 레이아웃 별도 구성
+- **사유**: 하나의 레이아웃이 breakpoint에 따라 자연스럽게 변형되어 코드 중복 없이 유지보수가 용이
+
+#### 2. 모바일 세로모드 배치: 수직 스택 구조 확정
+
+세로모드(portrait)에서 위→아래 순서로 배치:
+
+```
+┌─────────────────┐
+│   ProfileCard   │
+├─────────────────┤
+│                 │
+│ CharacterDisplay│
+│                 │
+├─────────────────┤
+│CharacterSelector│
+├─────────────────┤
+│   PlayButton    │
+└─────────────────┘
+```
+
+### 모든 미해결 질문 해결 완료 - `/create_plan` 진행 가능
