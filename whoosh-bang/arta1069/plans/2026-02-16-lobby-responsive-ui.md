@@ -4,19 +4,23 @@ author: arta1069
 git_commit: 726fe8601543e0ed40363062f06ef43b8a712b9c
 branch: main
 repository: Whoosh-Bang
-topic: "로비 화면 반응형 UI 구현 계획"
-tags: [plan, lobby, responsive, mobile, tailwind, flex, grid]
+topic: "로비 반응형 UI + 게임 모바일 조작 구현 계획"
+tags: [plan, lobby, responsive, mobile, tailwind, flex, grid, game, touch-controls, phaser]
 status: draft
 ---
 
-# 로비 화면 반응형 UI 구현 계획
+# 로비 반응형 UI + 게임 모바일 조작 구현 계획
 
 ## 개요
 
-로비 화면(`LobbyContent.tsx`)을 absolute 포지셔닝 기반에서 flex/grid 기반으로 재구성하여 PC와 모바일 환경 모두에서 자연스러운 레이아웃을 제공한다.
+두 가지 작업을 포함한다:
 
-- **모바일 세로모드**: 수직 스택 (ProfileCard → CharacterDisplay → CharacterSelector → PlayButton)
-- **가로모드 / 데스크탑(≥768px)**: 현재 PC 레이아웃 유지 (CSS Grid)
+1. **로비 반응형 UI**: `LobbyContent.tsx`를 absolute에서 flex/grid로 재구성하여 PC/모바일 모두 자연스러운 레이아웃 제공
+2. **게임 모바일 조작 UI**: 터치 기기에서 캐릭터 이동/점프를 위한 가상 버튼 추가
+
+- **모바일 세로모드 로비**: 수직 스택 (ProfileCard → CharacterDisplay → CharacterSelector → PlayButton)
+- **가로모드 / 데스크탑(≥768px) 로비**: 현재 PC 레이아웃 유지 (CSS Grid)
+- **게임 화면 (터치 기기)**: 우하단에 [←] [→] [JUMP] 가상 버튼 표시
 
 ## 현재 상태 분석
 
@@ -81,11 +85,11 @@ status: draft
 
 ## 하지 않을 것
 
-- Game 화면 변경 (현재 세로모드 오버레이 유지)
 - Screen Orientation API / CSS transform rotate 적용
 - ProfileCard 내부 구조 변경 (반응형 wrapper만 조정)
-- 새로운 모바일 전용 컴포넌트 생성
-- 터치 조작 UI 추가
+- 게임 세로모드 오버레이 변경 (현재 유도 방식 유지)
+- 가상 조이스틱 (아날로그 스틱 방식) - 단순 버튼 방식 채택
+- 에이밍 UI 변경 (터치 드래그는 Phaser 자동 변환으로 이미 작동)
 
 ## 구현 접근 방식
 
@@ -358,14 +362,342 @@ CharacterDisplay, CharacterSelector, PlayButton 각 컴포넌트에서 absolute 
 
 ---
 
+## 3단계: 게임 모바일 터치 조작 UI 추가
+
+### 개요
+터치 기기에서 캐릭터 이동(좌/우)과 점프가 불가능한 문제를 해결한다. Phaser 게임 내에 가상 버튼을 추가하고, InputController가 키보드와 가상 버튼 입력을 동시에 처리하도록 수정한다.
+
+### 현재 문제
+- 이동: `A`/`D` 키보드 전용 → 모바일에서 **불가능**
+- 점프: `W` 키보드 전용 → 모바일에서 **불가능**
+- 에이밍: 마우스 드래그 → Phaser가 터치를 pointer로 변환하므로 **작동함**
+- 무기 선택: 키보드 `1/2/3` + 클릭 → 클릭(터치) **작동함**
+
+### 게임 화면 모바일 레이아웃
+```
+┌──────────────────────────────────────────────┐
+│  Round 1                                      │
+│                                               │
+│              (터치 드래그 에이밍 영역)           │
+│                                               │
+│                                    Wind: → 3  │
+│  [P1 ██████ MOVE]                             │
+│  [🔫][🚀][💣]                   [←] [→]      │
+│  (WeaponSelector)                [JUMP]       │
+└──────────────────────────────────────────────┘
+   기존 좌하단 UI                   신규 우하단
+```
+
+### 필요한 변경:
+
+#### 1. MobileTouchControls.ts - 신규 파일 생성
+**파일**: `packages/game-core/src/ui/MobileTouchControls.ts`
+**변경**: 가상 버튼 UI 클래스 신규 생성
+
+```typescript
+import * as Phaser from "phaser"
+
+export class MobileTouchControls {
+  private scene: Phaser.Scene
+  private isDestroyed: boolean = false
+
+  // 버튼 상태
+  private _isLeftDown: boolean = false
+  private _isRightDown: boolean = false
+  private _jumpPressed: boolean = false
+  private _jumpConsumed: boolean = false
+
+  // UI 요소
+  private leftBtn!: Phaser.GameObjects.Container
+  private rightBtn!: Phaser.GameObjects.Container
+  private jumpBtn!: Phaser.GameObjects.Container
+
+  // 레이아웃 상수 (1280x720 게임 좌표 기준)
+  private readonly BTN_SIZE = 56
+  private readonly BTN_ALPHA = 0.15
+  private readonly BTN_ALPHA_PRESSED = 0.4
+  private readonly AREA_RIGHT = 1260  // 우측 기준점
+  private readonly AREA_BOTTOM = 710  // 하단 기준점
+
+  constructor(scene: Phaser.Scene) {
+    this.scene = scene
+    this.createButtons()
+  }
+
+  private createButtons(): void {
+    const r = this.BTN_SIZE / 2
+    const bottom = this.AREA_BOTTOM
+    const right = this.AREA_RIGHT
+
+    // [←] 버튼: 우하단 영역 좌측
+    this.leftBtn = this.createButton(
+      right - this.BTN_SIZE * 2 - 12,
+      bottom - this.BTN_SIZE - 8,
+      "◀",
+      () => { this._isLeftDown = true },
+      () => { this._isLeftDown = false }
+    )
+
+    // [→] 버튼: 우하단 영역 우측
+    this.rightBtn = this.createButton(
+      right,
+      bottom - this.BTN_SIZE - 8,
+      "▶",
+      () => { this._isRightDown = true },
+      () => { this._isRightDown = false }
+    )
+
+    // [JUMP] 버튼: ←→ 사이 아래
+    this.jumpBtn = this.createButton(
+      right - this.BTN_SIZE - 6,
+      bottom,
+      "▲",
+      () => { this._jumpPressed = true; this._jumpConsumed = false },
+      () => { this._jumpPressed = false }
+    )
+  }
+
+  private createButton(
+    x: number,
+    y: number,
+    label: string,
+    onDown: () => void,
+    onUp: () => void
+  ): Phaser.GameObjects.Container {
+    const r = this.BTN_SIZE / 2
+
+    // 배경 원
+    const bg = this.scene.add.circle(0, 0, r, 0xffffff, this.BTN_ALPHA)
+    bg.setStrokeStyle(2, 0xffffff, 0.3)
+
+    // 라벨
+    const text = this.scene.add.text(0, 0, label, {
+      fontSize: "22px",
+      color: "#ffffff",
+    }).setOrigin(0.5)
+
+    // 히트 영역 (투명)
+    const hitArea = this.scene.add.circle(0, 0, r)
+    hitArea.setInteractive()
+    hitArea.setAlpha(0.001)
+
+    hitArea.on("pointerdown", () => {
+      bg.setFillStyle(0xffffff, this.BTN_ALPHA_PRESSED)
+      onDown()
+    })
+    hitArea.on("pointerup", () => {
+      bg.setFillStyle(0xffffff, this.BTN_ALPHA)
+      onUp()
+    })
+    hitArea.on("pointerout", () => {
+      bg.setFillStyle(0xffffff, this.BTN_ALPHA)
+      onUp()
+    })
+
+    const container = this.scene.add.container(x, y, [bg, text, hitArea])
+    container.setDepth(60)
+    return container
+  }
+
+  // === Public getters ===
+
+  get isLeftDown(): boolean { return this._isLeftDown }
+  get isRightDown(): boolean { return this._isRightDown }
+
+  /** 점프는 "한 번만 트리거" 패턴. consume 호출 후 다시 누를 때까지 false */
+  consumeJump(): boolean {
+    if (this._jumpPressed && !this._jumpConsumed) {
+      this._jumpConsumed = true
+      return true
+    }
+    return false
+  }
+
+  destroy(): void {
+    if (this.isDestroyed) return
+    this.isDestroyed = true
+    this.leftBtn?.destroy()
+    this.rightBtn?.destroy()
+    this.jumpBtn?.destroy()
+  }
+}
+```
+
+**설계 결정:**
+- 버튼 크기 56px: 모바일 터치 최소 권장 크기(44px)보다 여유있게 설정
+- `pointerout` 이벤트: 손가락이 버튼 밖으로 미끄러질 때 해제
+- 점프 `consumeJump()` 패턴: `JustDown` 동작 모방 (프레임마다 점프하지 않도록)
+- depth 60: WeaponSelector(depth 50-53) 위에 표시
+- 반투명 원형 버튼: 게임 화면을 가리지 않음
+
+#### 2. InputController.ts - 가상 버튼 통합
+**파일**: `packages/game-core/src/systems/InputController.ts`
+**변경**: 터치 기기 감지, MobileTouchControls 생성, 이동/점프에 가상 버튼 상태 통합
+
+**import 추가:**
+```typescript
+import { MobileTouchControls } from "../ui/MobileTouchControls"
+```
+
+**프로퍼티 추가:**
+```typescript
+private touchControls: MobileTouchControls | null = null
+```
+
+**constructor 변경 (라인 27-40):**
+
+Before:
+```typescript
+constructor(scene: Phaser.Scene) {
+  this.scene = scene
+
+  if (scene.input.keyboard) {
+    this.keyW = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W)
+    this.keyA = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A)
+    this.keyS = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S)
+    this.keyD = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D)
+  }
+
+  this.setupMouseInput()
+}
+```
+
+After:
+```typescript
+constructor(scene: Phaser.Scene) {
+  this.scene = scene
+
+  if (scene.input.keyboard) {
+    this.keyW = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W)
+    this.keyA = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A)
+    this.keyS = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S)
+    this.keyD = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D)
+  }
+
+  // 터치 기기에서 가상 버튼 생성
+  if (scene.sys.game.device.input.touch) {
+    this.touchControls = new MobileTouchControls(scene)
+  }
+
+  this.setupMouseInput()
+}
+```
+
+**handleMovement 변경 (라인 146-158):**
+
+Before:
+```typescript
+private handleMovement(character: Character): void {
+  if (character.getMoveGauge() <= 0) {
+    character.stopMoving()
+    return
+  }
+
+  if (this.keyA.isDown) {
+    character.moveLeft()
+  } else if (this.keyD.isDown) {
+    character.moveRight()
+  } else {
+    character.stopMoving()
+  }
+}
+```
+
+After:
+```typescript
+private handleMovement(character: Character): void {
+  if (character.getMoveGauge() <= 0) {
+    character.stopMoving()
+    return
+  }
+
+  const leftDown = this.keyA?.isDown || this.touchControls?.isLeftDown
+  const rightDown = this.keyD?.isDown || this.touchControls?.isRightDown
+
+  if (leftDown) {
+    character.moveLeft()
+  } else if (rightDown) {
+    character.moveRight()
+  } else {
+    character.stopMoving()
+  }
+}
+```
+
+**handleJump 변경 (라인 161-165):**
+
+Before:
+```typescript
+private handleJump(character: Character): void {
+  if (Phaser.Input.Keyboard.JustDown(this.keyW)) {
+    character.jump()
+  }
+}
+```
+
+After:
+```typescript
+private handleJump(character: Character): void {
+  const keyboardJump = this.keyW && Phaser.Input.Keyboard.JustDown(this.keyW)
+  const touchJump = this.touchControls?.consumeJump()
+
+  if (keyboardJump || touchJump) {
+    character.jump()
+  }
+}
+```
+
+**destroy 변경 (라인 195-199):**
+
+Before:
+```typescript
+destroy(): void {
+  this.scene.input.off("pointerdown")
+  this.scene.input.off("pointermove")
+  this.scene.input.off("pointerup")
+}
+```
+
+After:
+```typescript
+destroy(): void {
+  this.scene.input.off("pointerdown")
+  this.scene.input.off("pointermove")
+  this.scene.input.off("pointerup")
+  this.touchControls?.destroy()
+}
+```
+
+### 성공 기준:
+
+#### 자동화된 검증:
+- [ ] 타입 체크 통과: `cd packages/game-core && npx tsc --noEmit`
+- [ ] 빌드 성공: `cd apps/web && npm run build`
+
+#### 수동 검증:
+- [ ] **PC 브라우저**: 기존 WASD + 마우스 조작이 변함없이 작동 (가상 버튼 미표시)
+- [ ] **모바일(터치 기기)**: 우하단에 [←] [→] [JUMP] 버튼 표시
+- [ ] **[←] [→] 버튼**: 터치 시 캐릭터 좌/우 이동, 떼면 정지
+- [ ] **[JUMP] 버튼**: 터치 시 1회 점프, 꾹 눌러도 연속 점프 안 됨
+- [ ] **이동 게이지**: 가상 버튼으로 이동 시에도 게이지 정상 소모
+- [ ] **에이밍**: 가상 버튼 영역 외 화면 터치 드래그 시 에이밍 정상 작동
+- [ ] **버튼 시각 피드백**: 누를 때 밝아지고, 놓으면 원래 투명도
+- [ ] **기존 WeaponSelector**: 좌하단 무기 선택 터치 정상 작동 (충돌 없음)
+
+**Implementation Note**: Chrome DevTools의 "Toggle device toolbar" + touch simulation으로 기본 테스트 가능하나, 실제 모바일 기기에서의 멀티터치 검증이 필요합니다.
+
+---
+
 ## 테스트 전략
 
 ### 자동화 테스트:
-- TypeScript 타입 체크
+- TypeScript 타입 체크 (`apps/web`, `packages/game-core`)
 - Next.js 린트
 - 프로덕션 빌드 성공
 
 ### 수동 테스트 단계:
+
+#### 로비 반응형 (1-2단계):
 1. **Chrome DevTools** 모바일 시뮬레이터로 다음 뷰포트 테스트:
    - iPhone SE (375x667) portrait → 수직 스택
    - iPhone SE (667x375) landscape → grid 레이아웃
@@ -374,7 +706,7 @@ CharacterDisplay, CharacterSelector, PlayButton 각 컴포넌트에서 absolute 
    - iPad (768x1024) portrait → grid 레이아웃 (≥768px)
    - Desktop (1280x720) → grid 레이아웃 (현재와 동일)
 
-2. **기능 확인**:
+2. **로비 기능 확인**:
    - 캐릭터 선택 → 캐릭터 이미지 변경
    - PLAY 버튼 → /game 라우팅
    - 지갑 연결 다이얼로그 열기/닫기
@@ -385,15 +717,37 @@ CharacterDisplay, CharacterSelector, PlayButton 각 컴포넌트에서 absolute 
    - 매우 긴 사용자 이름 (truncate 동작)
    - CharacterSelector에서 캐릭터 수 많을 때 스크롤
 
+#### 게임 모바일 조작 (3단계):
+4. **PC에서 회귀 테스트**:
+   - WASD 이동/점프 정상 작동
+   - 마우스 드래그 에이밍/발사 정상 작동
+   - 가상 버튼이 표시되지 않음 (터치 미지원 기기)
+
+5. **모바일/터치 기기 테스트** (Chrome DevTools touch simulation 또는 실기기):
+   - [←] [→] 버튼으로 좌/우 이동
+   - [JUMP] 버튼으로 점프
+   - 이동 게이지 정상 소모/표시
+   - 가상 버튼 영역 외 드래그 시 에이밍 작동
+   - WeaponSelector(좌하단) 터치로 무기 변경
+
+6. **멀티터치 시나리오** (실기기 필수):
+   - [→] 누른 채 [JUMP] 동시 터치 → 이동하며 점프
+   - 이동 중 다른 손가락으로 에이밍 드래그
+
 ## 성능 고려 사항
 
 - CSS-only 레이아웃 전환 (`@media` 쿼리) → JS 오버헤드 없음
 - 기존 애니메이션 (`animate-float`, `animate-scale-pulse`) 유지
 - 배경 이미지 로딩 전략 변경 없음
+- 가상 버튼: Phaser GameObjects 3개 + Container → 성능 영향 무시 가능
+- 터치 감지: `scene.sys.game.device.input.touch` 한 번 체크 (매 프레임 검사 아님)
 
 ## 참조
 
 - 원본 연구: `thoughts/arta1069/research/2026-02-16-mobile-responsive-orientation-strategy.md`
 - 로비 구현: `apps/web/src/components/lobby/LobbyContent.tsx`
+- 게임 입력: `packages/game-core/src/systems/InputController.ts`
+- 게임 UI: `packages/game-core/src/ui/` (WeaponSelector, GameHUD)
+- 컨트롤러 인터페이스: `packages/game-core/src/systems/IPlayerController.ts`
 - Tailwind v4 커스텀 변형: `@custom-variant` directive
 - 초기 아키텍처: `thoughts/arta1069/research/2026-01-22-worms-game-architecture-research.md`
