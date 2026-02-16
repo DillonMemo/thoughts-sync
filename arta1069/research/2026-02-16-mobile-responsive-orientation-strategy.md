@@ -9,6 +9,7 @@ tags: [research, codebase, mobile, responsive, orientation, lobby, game, phaser]
 status: complete
 last_updated: 2026-02-16
 last_updated_by: arta1069
+last_updated_note: "사용자 결정 반영 - 요구사항 확정 및 전략 선택"
 ---
 
 # 연구: 모바일 반응형 UI 및 화면 회전(orientation) 전략
@@ -237,10 +238,48 @@ iOS에서 강제 회전이 불가능하므로, **플랫폼별 최선의 경험**
 - `thoughts/arta1069/plans/2026-01-23-worms-game-mvp-implementation.md` - MVP 구현 계획 (반응형 설계)
 - `thoughts/arta1069/research/2026-02-16-game-balance-weapon-movement-research.md` - 밸런스 연구 (이동 게이지)
 
+## 후속 연구 2026-02-16T19:18:59+0900
+
+### 사용자 결정 사항
+
+연구 결과를 바탕으로 사용자와 논의 후 다음과 같이 요구사항이 확정되었다:
+
+#### 확정된 요구사항
+
+1. **Lobby 화면 반응형 UI 개선** (핵심 작업)
+   - PC와 모바일 모두 **가로 + 세로** 방향 지원
+   - 현재 PC 레이아웃(UI)은 만족스러움 → 유지
+   - 모바일에서 UI가 깨지는 문제 해결 필요
+   - breakpoint 기준: `md: 768px`
+
+2. **Game 화면 세로모드 오버레이 유지** (변경 없음)
+   - Android/iOS 플랫폼별 분기 **하지 않음** → 통일성 있는 UX
+   - 현재 `PhaserGame.tsx`의 세로모드 → 가로모드 유도 오버레이 **그대로 유지**
+   - Fullscreen + Orientation Lock 등 플랫폼별 대안 **불채택**
+
+#### 채택된 전략
+
+- **전략 C (유도 오버레이 유지)** 채택 확정
+- 전략 A (조건부 Orientation Lock) → **불채택** (Android/iOS 동작 차이로 통일성 부족)
+- 전략 B (CSS 회전 + 좌표 보정) → **불채택** (복잡도 높고 Phaser 충돌 위험)
+
+#### 불채택 사유
+
+| 검토 항목 | 결정 | 사유 |
+|-----------|------|------|
+| Screen Orientation API lock() | ❌ 불채택 | iOS 미지원으로 Android/iOS 경험 불일치 |
+| CSS transform rotate(90deg) | ❌ 불채택 | Phaser 터치 좌표 역전 문제, 디버깅 난이도 |
+| Fullscreen + Lock 조합 | ❌ 불채택 | iOS iPhone에서 Fullscreen 미지원 |
+| PWA manifest orientation | ❌ 불채택 | 홈화면 추가 필수, iOS 무시 |
+| 플랫폼별 분기 처리 | ❌ 불채택 | 사용자 요청: Android/iOS 통일된 경험 |
+
+### 남은 작업 범위
+
+- **Lobby 반응형 UI 개선**이 유일한 구현 작업
+- Game 화면은 현재 구현 유지 (추가 작업 없음)
+- 다음 단계: `/create_plan`으로 Lobby 반응형 설계 계획 수립 예정
+
 ## 미해결 질문
 
-1. **CSS 회전 전략 채택 여부**: iOS에서 CSS transform rotate를 사용할 경우, Phaser의 입력 좌표 시스템과의 충돌을 어떻게 해결할 것인가?
-2. **로비 모바일 레이아웃**: 절대 위치 기반의 현재 레이아웃을 flex/grid 기반으로 재구성할 것인가, 아니면 모바일 전용 레이아웃을 별도로 만들 것인가?
-3. **게임 내 터치 조작 UI**: 가상 조이스틱/D-pad를 추가할 것인가, 화면 터치 영역 분할 방식을 사용할 것인가?
-4. **PWA 설정**: manifest.json을 추가하여 Android 홈 화면 추가 시 자동 가로모드를 지원할 것인가?
-5. **전략 선택**: 전략 A(조건부 lock), B(CSS 회전), C(유도 오버레이 강화) 중 어느 것을 채택할 것인가?
+1. **로비 모바일 레이아웃**: 절대 위치 기반의 현재 레이아웃을 flex/grid 기반으로 재구성할 것인가, 아니면 모바일 전용 레이아웃을 별도로 만들 것인가?
+2. **모바일 세로모드 로비 배치**: 세로모드에서 ProfileCard, CharacterDisplay, CharacterSelector, PlayButton의 배치를 어떻게 구성할 것인가?
