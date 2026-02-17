@@ -4,14 +4,15 @@ researcher: arta1069@gmail.com
 git_commit: ca7b89eddd278d8f25e181af54a029d2c459e095
 branch: main
 repository: Whoosh-Bang
-topic: "fortem-sdk-web SDK 라이브러리 생성을 위한 모노레포 구조 및 패키지 패턴 연구"
-tags: [research, codebase, fortem, sdk, monorepo, packages, typescript, tsup]
+topic: "fortem-sdk-web SDK 라이브러리 생성을 위한 프로젝트 구조 및 패키지 패턴 연구"
+tags: [research, codebase, fortem, sdk, npm-package, typescript, tsup, separate-repo]
 status: complete
 last_updated: 2026-02-17
 last_updated_by: arta1069
+last_updated_note: "별도 리포지토리 구조로 변경, 1단계 핵심 목표 명확화에 대한 후속 연구 추가"
 ---
 
-# 연구: fortem-sdk-web SDK 라이브러리 생성을 위한 모노레포 구조 및 패키지 패턴 연구
+# 연구: fortem-sdk-web SDK 라이브러리 생성을 위한 프로젝트 구조 및 패키지 패턴 연구
 
 **날짜**: 2026-02-17T13:21:29Z
 **연구자**: arta1069@gmail.com
@@ -25,11 +26,49 @@ last_updated_by: arta1069
 
 ## 요약
 
-whoosh-bang은 **pnpm 9.0.0 + Turborepo** 기반 모노레포로, `apps/web` (Next.js 16)과 `packages/` (game-core, ui, config) 3개 내부 패키지로 구성된다. `@repo/game-core`가 유일한 빌드 대상 패키지로, **tsup (esbuild 기반)** 으로 ESM 단일 포맷을 출력하며 `.d.mts` 타입 선언을 생성한다. 외부 API 호출은 Supabase 클라이언트와 `fetch()` 기반으로 이루어지며, Wallet nonce/verify 2단계 인증 패턴이 존재한다. 새 `fortem-sdk-web` 패키지는 `packages/fortem-sdk-web/`에 `@repo/game-core`와 동일한 tsup 기반 빌드 파이프라인으로 생성하되, npm 공개 배포를 위해 `private: false`와 적절한 패키지명을 설정해야 한다.
+whoosh-bang은 **pnpm 9.0.0 + Turborepo** 기반 모노레포로, `apps/web` (Next.js 16)과 `packages/` (game-core, ui, config) 3개 내부 패키지로 구성된다. `@repo/game-core`가 유일한 빌드 대상 패키지로, **tsup (esbuild 기반)** 으로 ESM 단일 포맷을 출력하며 `.d.mts` 타입 선언을 생성한다. 외부 API 호출은 Supabase 클라이언트와 `fetch()` 기반으로 이루어지며, Wallet nonce/verify 2단계 인증 패턴이 존재한다.
+
+**`fortem-sdk-web`은 whoosh-bang 모노레포 내부 패키지가 아닌, 별도 리포지토리(`https://github.com/ForTemLabs/fortem-sdk-web.git`)로 개발되며, npm 레지스트리를 통해 `pnpm install fortem-sdk-web`으로 소비된다.** `@repo/game-core`의 tsup 기반 빌드 파이프라인을 참조 모델로 삼되, 독립 패키지로서 ESM + CJS dual format과 견고한 패키지 기반을 갖추는 것이 1단계의 핵심이다.
+
+## 프로젝트 배치 구조 (확정)
+
+```
+~/workspace/games/
+├── whoosh-bang/           # 기존 게임 프로젝트 (소비자)
+│   ├── apps/web/          #   → pnpm install fortem-sdk-web 으로 SDK 사용
+│   ├── packages/
+│   │   ├── game-core/
+│   │   ├── ui/
+│   │   └── config/
+│   └── ...
+└── fortem-sdk-web/        # 신규 SDK 프로젝트 (별도 리포지토리)
+    ├── .git/              #   → https://github.com/ForTemLabs/fortem-sdk-web.git
+    ├── package.json       #   → name: "fortem-sdk-web", npm 공개 배포
+    ├── tsconfig.json
+    ├── tsup.config.ts
+    └── src/
+        └── index.ts
+```
+
+### 핵심 아키텍처 결정
+
+| 항목 | 결정 |
+|------|------|
+| **리포지토리** | 별도 (`ForTemLabs/fortem-sdk-web`) — whoosh-bang 모노레포 외부 |
+| **GitHub** | `https://github.com/ForTemLabs/fortem-sdk-web.git` |
+| **패키지명** | `fortem-sdk-web` |
+| **소비 방식** | npm 레지스트리 → `pnpm install fortem-sdk-web` |
+| **대상 환경** | Node.js + 브라우저 JavaScript (범용) |
+| **빌드 참조 모델** | `@repo/game-core` (tsup 기반) |
+
+### 1단계 핵심 목표
+
+1. **패키지 기반 완성도** — Node/JavaScript 어디서나 `npm install fortem-sdk-web`으로 바로 사용 가능한 견고한 패키지 구조 (ESM + CJS dual format, 타입 선언, 적절한 exports)
+2. **인증 플로우** — nonce 발급(Step 1) → access token 획득(Step 2)까지의 2단계 인증
 
 ## 상세 발견 사항
 
-### 1. 모노레포 구조
+### 1. whoosh-bang 모노레포 구조
 
 프로젝트 루트 `package.json`에서 workspace는 `apps/*`와 `packages/*` 두 글로브로 등록된다.
 
@@ -51,7 +90,7 @@ Turborepo `build` 태스크는 `dependsOn: ["^build"]`로 의존 패키지를 �
 
 ### 2. @repo/game-core — 빌드 가능한 패키지의 참조 모델
 
-`fortem-sdk-web` 패키지를 만들 때 가장 직접적으로 참고할 수 있는 기존 패키지이다.
+`fortem-sdk-web` 패키지를 만들 때 빌드 파이프라인의 참조 모델로 삼을 수 있는 기존 패키지이다. 단, `@repo/game-core`는 모노레포 내부 패키지(ESM 전용)이고, `fortem-sdk-web`은 독립 npm 패키지(ESM + CJS dual format)라는 차이가 있다.
 
 **package.json 핵심 설정:**
 - `name`: `@repo/game-core`
@@ -59,7 +98,7 @@ Turborepo `build` 태스크는 `dependsOn: ["^build"]`로 의존 패키지를 �
 - `types`: `./dist/index.d.mts`
 - `exports.".".import`: `./dist/index.mjs`
 - `exports.".".types`: `./dist/index.d.mts`
-- CJS 진입점 없음 (ESM 전용)
+- CJS 진입점 없음 (ESM 전용 — 모노레포 내부 소비 전용이므로)
 
 **빌드 도구: tsup (esbuild 기반)**
 - 엔트리: `src/index.ts` 단일 파일
@@ -128,6 +167,8 @@ Turborepo `build` 태스크는 `dependsOn: ["^build"]`로 의존 패키지를 �
 - `apps/web`의 `transpilePackages: ["@repo/game-core", "@repo/ui"]`로 소비자 측 트랜스파일
 - 패키지의 `exports` 필드와 빌드된 `.d.ts` 파일을 통한 타입 연결
 
+**fortem-sdk-web의 경우:** whoosh-bang에서 `workspace:*`가 아닌 npm 레지스트리 버전으로 의존하게 된다. 즉, whoosh-bang의 `apps/web/package.json`에 `"fortem-sdk-web": "^x.x.x"`로 선언된다.
+
 ### 8. TypeScript 공통 설정
 
 모든 패키지에서 공통:
@@ -155,7 +196,7 @@ Turborepo `build` 태스크는 `dependsOn: ["^build"]`로 의존 패키지를 �
 
 ## 아키텍처 문서화
 
-### 빌드 파이프라인
+### whoosh-bang 빌드 파이프라인
 
 ```
 [Turborepo] turbo build
@@ -165,7 +206,7 @@ Turborepo `build` 태스크는 `dependsOn: ["^build"]`로 의존 패키지를 �
     └── apps/web            →  next build (transpilePackages로 game-core, ui 포함)
 ```
 
-### 패키지 의존 관계
+### whoosh-bang 패키지 의존 관계
 
 ```
 @repo/config (ESLint 설정)
@@ -174,27 +215,78 @@ Turborepo `build` 태스크는 `dependsOn: ["^build"]`로 의존 패키지를 �
 @repo/ui        (React UI)
     ↑ dependency (workspace:*)
 apps/web        (Next.js)
+    ↑ dependency (npm registry)
+fortem-sdk-web  (ForTem SDK — 별도 리포지토리, npm 배포)
 ```
 
-### fortem-sdk-web 배치 시 예상 구조
+### fortem-sdk-web 예상 구조 (별도 리포지토리)
 
 ```
-packages/
-├── game-core/        # 기존
-├── ui/               # 기존
-├── config/           # 기존
-└── fortem-sdk-web/   # 새 SDK 패키지
-    ├── package.json  # name: "fortem-sdk-web", private: false
-    ├── tsconfig.json
-    ├── tsup.config.ts
-    ├── vitest.config.ts
-    └── src/
-        ├── index.ts        # 엔트리포인트
-        ├── client.ts       # FortemClient 클래스
-        ├── auth.ts         # nonce → access-token 2단계 인증
-        ├── types.ts        # 타입 정의
-        └── __tests__/      # 테스트
+~/workspace/games/fortem-sdk-web/     # 별도 리포지토리
+├── .git/                              # → https://github.com/ForTemLabs/fortem-sdk-web.git
+├── package.json                       # name: "fortem-sdk-web", private: false
+├── tsconfig.json
+├── tsup.config.ts                     # ESM + CJS dual format 출력
+├── vitest.config.ts
+├── .npmignore 또는 "files" 필드
+├── README.md
+├── LICENSE
+└── src/
+    ├── index.ts                       # 엔트리포인트 (public API)
+    ├── client.ts                      # FortemClient 클래스
+    ├── auth.ts                        # nonce → access-token 2단계 인증
+    ├── types.ts                       # 타입 정의
+    ├── errors.ts                      # 커스텀 에러 클래스
+    └── __tests__/                     # 테스트
 ```
+
+### fortem-sdk-web과 whoosh-bang의 관계
+
+```
+[fortem-sdk-web]                    [whoosh-bang]
+(별도 Git 리포)                     (기존 모노레포)
+
+  npm publish
+      │
+      ▼
+  npm registry ─── pnpm install ──→ apps/web/package.json
+  "fortem-sdk-web"                    "fortem-sdk-web": "^x.x.x"
+```
+
+## ForTem API 인증 플로우 (1단계 구현 범위)
+
+### Step 1: Nonce 발급
+
+```http
+POST {baseUrl}/api/v1/developers/auth/nonce
+Header: x-api-key: <YOUR_API_KEY>
+```
+
+Response: `{ "statusCode": 200, "data": { "nonce": "f09d58d9..." } }`
+
+### Step 2: Access Token 발급
+
+```http
+POST {baseUrl}/api/v1/developers/auth/access-token
+Header: x-api-key: <YOUR_API_KEY>
+Content-Type: application/json
+Body: { "nonce": "<nonce_from_step_1>" }
+```
+
+Response: `{ "statusCode": 200, "data": { "accessToken": "eyJhbGci..." } }`
+
+### API 엔드포인트 환경
+
+| 환경 | API Base URL | Service URL |
+|------|-------------|-------------|
+| Testnet | `https://testnet-api.fortem.gg` | `https://testnet.fortem.gg` |
+| Mainnet | `https://api.fortem.gg` | `https://fortem.gg` |
+
+### Access Token 특성
+
+- **유효시간**: 5분
+- **1회성**: 민팅(생성) API 호출 시 토큰이 소모되며 재사용 불가 (2단계에서 적용)
+- **Bearer Token**: 이후 API 호출에서 `Authorization: Bearer <accessToken>` 헤더로 사용
 
 ## 히스토리 컨텍스트 (thoughts/에서)
 
@@ -211,7 +303,35 @@ packages/
 
 ## 미해결 질문
 
-1. **패키지 배포 범위**: `fortem-sdk-web`은 npm 공개 배포인가, 아니면 모노레포 내부 전용인가? 공개 배포라면 패키지명 스코프(`@fortem/sdk-web` 등)를 결정해야 한다.
-2. **CJS 지원**: 현재 `@repo/game-core`는 ESM 전용이지만, 외부 Node.js 프로젝트 호환을 위해 CJS 포맷도 함께 출력할 필요가 있는가?
+1. ~~**패키지 배포 범위**: `fortem-sdk-web`은 npm 공개 배포인가, 아니면 모노레포 내부 전용인가?~~ → **해결**: 별도 리포지토리(`ForTemLabs/fortem-sdk-web`)에서 npm 공개 배포
+2. **CJS 지원**: `@repo/game-core`는 ESM 전용이지만, `fortem-sdk-web`은 범용 npm 패키지이므로 ESM + CJS dual format이 필요할 가능성이 높다.
 3. **ForTem API 전체 스펙**: 2단계(유저 조회, 콜렉션 CRUD, 아이템 CRUD)의 상세 API 스펙이 추가로 필요하다.
 4. **Access Token 관리 전략**: 5분 TTL + 민팅 시 1회성이라는 특성을 고려할 때, SDK 레벨에서 토큰 캐싱/자동 갱신 전략을 어떻게 설계할 것인가?
+
+## 후속 연구 2026-02-17T13:35:00Z
+
+### 프로젝트 구조 변경: 모노레포 내부 → 별도 리포지토리
+
+사용자 요구에 따라 `fortem-sdk-web`의 배치가 변경되었다:
+
+| 항목 | 초기 가정 | 확정 방향 |
+|------|----------|-----------|
+| **위치** | `whoosh-bang/packages/fortem-sdk-web/` | `~/workspace/games/fortem-sdk-web/` (별도 리포) |
+| **GitHub** | whoosh-bang 모노레포 내부 | `https://github.com/ForTemLabs/fortem-sdk-web.git` |
+| **소비 방식** | `workspace:*` 프로토콜 | **npm 레지스트리** → `pnpm install fortem-sdk-web` |
+| **패키지명** | `@repo/fortem-sdk-web` 등 | `fortem-sdk-web` (스코프 없음) |
+
+### 1단계 핵심 재정의
+
+사용자가 강조한 1단계의 핵심은 **인증 플로우 구현보다 패키지 기반의 완성도**에 있다:
+
+> "Node와 javascript 환경에서 누구나 공통으로 라이브러리를 install 잘 활용할 수 있게 패키지 기반을 잘 다듬는게 핵심"
+
+따라서 1단계에서 집중해야 할 영역:
+1. **ESM + CJS dual format** 빌드 출력 (범용 Node.js 호환)
+2. **TypeScript 타입 선언** 완전 지원 (`.d.ts` / `.d.mts` / `.d.cts`)
+3. **package.json exports 필드** 올바른 조건부 export 설정
+4. **npm 배포 설정** — `files` 필드, `.npmignore`, `prepublishOnly` 스크립트
+5. **README, LICENSE** 등 공개 패키지 표준 파일
+6. **테스트 기반** — vitest로 인증 플로우 단위 테스트
+7. 그 위에 **인증 플로우**(nonce → access-token) 구현
