@@ -9,7 +9,7 @@ tags: [research, codebase, supabase-storage, characters, weapons, asset-manageme
 status: complete
 last_updated: 2026-02-17
 last_updated_by: arta1069
-last_updated_note: "BootScene 매치 참여 캐릭터만 로딩 결정 추가"
+last_updated_note: "배경/사운드 포함 + 마이그레이션 스크립트 구조 — 미해결 질문 4/4 모두 해결"
 ---
 
 # 연구: Supabase Storage 기반 에셋 관리 시스템 - DB 스키마 재설계
@@ -154,7 +154,14 @@ apps/web/public/assets/resource/  (총 ~1.8MB)
 | 대역폭 (Egress) | 10 GB/월 |
 | Public bucket CDN | Cloudflare CDN 캐시 |
 
-현재 에셋 총량: ~4.1MB (characters 2.3MB + resource 1.8MB) → **1GB 한도의 0.4%**
+전체 에셋 총량:
+| 카테고리 | 크기 | 설명 |
+|---------|------|------|
+| 배경 (8세트) | 7.5MB | 세트별 5~9개 레이어 PNG |
+| 사운드 | 6.4MB | fortress-bgm (3MB), lobby-bgm (3.5MB) |
+| 캐릭터 | 2.3MB | 캐릭터별 12포즈 × 5캐릭터 |
+| 무기/리소스 | 1.8MB | 아틀라스 + 개별 PNG 88개 |
+| **합계** | **~18MB** | **1GB 한도의 1.8%** |
 
 Public bucket URL 형식:
 ```
@@ -208,8 +215,16 @@ game-assets/  (public bucket)
 │       ├── tank_bullet3.png     (grenade 투사체)
 │       ├── tanks_turret1.png    (shotgun 들기)
 │       └── tanks_turret2.png    (bazooka 들기)
+├── backgrounds/
+│   ├── 1/
+│   │   ├── 1_layer.png
+│   │   ├── 2_layer.png ... 6_layer.png
+│   │   └── 1_game_background.png  (미사용 원본)
+│   ├── 2/ ... 8/                  (세트별 동일 구조)
+│   └── config.json                (세트별 레이어 수, 지형 레이어, 다리 설정)
 └── sounds/
-    └── fortress-bgm.ogg.mp3    (향후 확장)
+    ├── fortress-bgm.ogg.mp3      (인게임 BGM, 3MB)
+    └── lobby-bgm.ogg             (로비 BGM, 3.5MB)
 ```
 
 ### Characters 테이블 재설계
@@ -426,9 +441,9 @@ export function getStorageUrl(path: string): string {
 
 2. ~~**무기 썸네일 이미지 소스**~~ → **해결됨**: 로비도 인게임과 동일한 프레임명(`hold_frame`/`projectile_frame`)을 기반으로 Storage URL을 도출. `weapons/frames/` 디렉토리에 아틀라스 프레임과 동일 파일명의 개별 PNG를 배치.
 
-3. **배경/사운드 에셋 포함 범위**: 이번 재설계에 배경 이미지와 사운드도 Storage로 이전할지, 캐릭터/무기만 우선 처리할지 결정 필요.
+3. ~~**배경/사운드 에셋 포함 범위**~~ → **해결됨**: 배경(8세트, 7.5MB) + 사운드(6.4MB) 모두 이번 재설계에 포함. 전체 ~18MB로 1GB 한도의 1.8%.
 
-4. **에셋 업로드 자동화**: Storage bucket에 파일을 업로드하는 마이그레이션 스크립트 또는 수동 업로드 절차 필요.
+4. ~~**에셋 업로드 자동화**~~ → **해결됨**: 아래 후속 연구 참조. `scripts/migrate-assets-to-storage.ts` 스크립트로 로컬 에셋을 Supabase Storage에 일괄 업로드.
 
 ## 후속 연구 (2026-02-17)
 
@@ -471,3 +486,123 @@ export function getStorageUrl(path: string): string {
 | 캐릭터 20개 (장기) | 240개 이미지 | 24개 이미지 |
 
 **확장성**: 멀티플레이어 추가 시에도 참여 플레이어 수 × 12포즈만 로딩.
+
+### 배경/사운드 에셋 Storage 포함 결정
+
+**결정**: 배경과 사운드 모두 이번 재설계에 포함한다.
+
+**현재 배경 시스템** (BootScene.ts:4-36, 81-104):
+- 8개 세트, 세트별 5~9개 레이어 PNG (총 7.5MB)
+- `BACKGROUND_LAYER_COUNTS`, `TERRAIN_LAYERS`, `TERRAIN_BRIDGE_CONFIG` 모두 하드코딩
+- 매 게임 시작 시 랜덤 세트 선택 → 해당 세트 레이어만 로딩
+- 경로: `/assets/background/${setId}/${i}_layer.png`
+
+**현재 사운드 시스템**:
+- 인게임 BGM: `fortress-bgm.ogg.mp3` (3MB) — BootScene.ts:125에서 로딩
+- 로비 BGM: `lobby-bgm.ogg` (3.5MB) — ProfileCard.tsx:105에서 HTML `<audio>` 태그로 직접 참조
+
+**Storage 전환 시 변경 사항**:
+
+배경:
+- Storage 경로: `backgrounds/{setId}/{i}_layer.png`
+- 배경 설정(레이어 수, 지형 레이어, 다리 설정)을 `backgrounds/config.json`으로 Storage에 관리
+- BootScene: 하드코딩 상수 제거 → config.json fetch 후 해당 세트 레이어 로딩
+- 또는 DB `background_sets` 테이블로 관리 (향후 배경 추가/비활성화 가능)
+
+사운드:
+- Storage 경로: `sounds/fortress-bgm.ogg.mp3`, `sounds/lobby-bgm.ogg`
+- BootScene: `this.load.audio("bgm", "${STORAGE_URL}/sounds/fortress-bgm.ogg.mp3")`
+- ProfileCard: `<audio src="${STORAGE_URL}/sounds/lobby-bgm.ogg">`
+
+### 에셋 업로드 마이그레이션 스크립트 구조
+
+**결정**: `scripts/migrate-assets-to-storage.ts` 스크립트로 자동화.
+
+**스크립트 역할**: 로컬 `public/assets/` 디렉토리의 파일을 Supabase Storage `game-assets` bucket에 업로드.
+
+**실행 흐름**:
+```
+1. game-assets public bucket 생성 (없으면)
+2. 카테고리별 업로드:
+   ├─ characters/  → characters/{id}/{prefix}_{pose}.png
+   ├─ weapons/atlas/ → weapons/atlas/tanks_default.png/.xml
+   ├─ weapons/frames/ → weapons/frames/{frame}.png (PNG/Default size/에서)
+   ├─ backgrounds/ → backgrounds/{setId}/{i}_layer.png
+   └─ sounds/ → sounds/{filename}
+3. 업로드 결과 리포트 (성공/실패/스킵)
+```
+
+**의사 코드**:
+```typescript
+// scripts/migrate-assets-to-storage.ts
+import { createClient } from "@supabase/supabase-js"
+import * as fs from "fs"
+import * as path from "path"
+
+const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
+const BUCKET = "game-assets"
+const ASSETS_DIR = "apps/web/public/assets"
+
+async function main() {
+  // 1. bucket 생성
+  await supabase.storage.createBucket(BUCKET, { public: true })
+
+  // 2. 캐릭터 업로드
+  for (const charDir of ["Player", "Adventurer", "Female", ...]) {
+    const prefix = charDir.toLowerCase()
+    for (const pose of POSES) {
+      const localPath = `${ASSETS_DIR}/characters/PNG/${charDir}/Poses/${prefix}_${pose}.png`
+      const storagePath = `characters/${prefix}/${prefix}_${pose}.png`
+      await uploadFile(localPath, storagePath)
+    }
+  }
+
+  // 3. 무기 아틀라스 업로드
+  await uploadFile(
+    `${ASSETS_DIR}/resource/Spritesheet/tanks_spritesheetDefault.png`,
+    "weapons/atlas/tanks_default.png"
+  )
+  await uploadFile(
+    `${ASSETS_DIR}/resource/Spritesheet/tanks_spritesheetDefault.xml`,
+    "weapons/atlas/tanks_default.xml"
+  )
+
+  // 4. 무기 프레임 개별 PNG 업로드
+  for (const file of fs.readdirSync(`${ASSETS_DIR}/resource/PNG/Default size`)) {
+    await uploadFile(
+      `${ASSETS_DIR}/resource/PNG/Default size/${file}`,
+      `weapons/frames/${file}`
+    )
+  }
+
+  // 5. 배경 업로드
+  for (let setId = 1; setId <= 8; setId++) {
+    for (const file of fs.readdirSync(`${ASSETS_DIR}/background/${setId}`)) {
+      await uploadFile(
+        `${ASSETS_DIR}/background/${setId}/${file}`,
+        `backgrounds/${setId}/${file}`
+      )
+    }
+  }
+
+  // 6. 사운드 업로드
+  for (const file of fs.readdirSync(`${ASSETS_DIR}/sound`)) {
+    await uploadFile(`${ASSETS_DIR}/sound/${file}`, `sounds/${file}`)
+  }
+}
+
+async function uploadFile(localPath: string, storagePath: string) {
+  const fileBuffer = fs.readFileSync(localPath)
+  const contentType = getContentType(localPath)
+  const { error } = await supabase.storage
+    .from(BUCKET)
+    .upload(storagePath, fileBuffer, { contentType, upsert: true })
+
+  if (error) console.error(`FAIL: ${storagePath}`, error.message)
+  else console.log(`OK: ${storagePath}`)
+}
+```
+
+**실행 방법**: `npx tsx scripts/migrate-assets-to-storage.ts`
+**필요 환경변수**: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+**멱등성**: `upsert: true`로 재실행 시 기존 파일 덮어쓰기 (안전하게 반복 가능)
