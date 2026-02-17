@@ -30,12 +30,12 @@ const fortem = createFortemClient({
   network: 'testnet',
 })
 
-// 인증
+// Authentication
 const { nonce } = await fortem.auth.getNonce()
 const { accessToken } = await fortem.auth.getAccessToken(nonce)
 
-// access token이 유효한 동안 자동 주입
-// 만료 시 401 응답 → 자동 재발급
+// Access token is automatically injected while valid
+// Auto-refreshes on 401 response
 ```
 
 검증:
@@ -262,36 +262,36 @@ dist/
 **파일**: `src/types.ts`
 
 ```typescript
-/** ForTem 네트워크 환경 */
+/** ForTem network environment */
 export type FortemNetwork = "testnet" | "mainnet";
 
-/** createFortemClient() 옵션 */
+/** Options for createFortemClient() */
 export interface FortemClientOptions {
-  /** ForTem 개발자 API 키 */
+  /** ForTem developer API key */
   apiKey: string;
-  /** 네트워크 환경 (기본값: 'mainnet') */
+  /** Network environment (default: 'mainnet') */
   network?: FortemNetwork;
-  /** 커스텀 fetch 함수 (테스트용) */
+  /** Custom fetch function (for testing) */
   fetch?: typeof globalThis.fetch;
 }
 
-/** API 응답 공통 구조 */
+/** Common API response structure */
 export interface FortemResponse<T> {
   statusCode: number;
   data: T;
 }
 
-/** Nonce 응답 */
+/** Nonce response */
 export interface NonceResponse {
   nonce: string;
 }
 
-/** Access Token 응답 */
+/** Access token response */
 export interface AccessTokenResponse {
   accessToken: string;
 }
 
-/** 네트워크별 설정 */
+/** Per-network configuration */
 export interface NetworkConfig {
   apiBaseUrl: string;
   serviceUrl: string;
@@ -322,7 +322,7 @@ export const DEFAULT_NETWORK: FortemNetwork = "mainnet";
 **파일**: `src/errors.ts`
 
 ```typescript
-/** ForTem API 에러 */
+/** ForTem API error */
 export class FortemError extends Error {
   constructor(
     message: string,
@@ -334,7 +334,7 @@ export class FortemError extends Error {
   }
 }
 
-/** 인증 에러 (401) */
+/** Authentication error (401) */
 export class FortemAuthError extends FortemError {
   constructor(message: string = "Authentication failed") {
     super(message, 401, "AUTH_ERROR");
@@ -354,7 +354,7 @@ import type { FortemResponse } from "./types";
 
 export type Fetch = typeof globalThis.fetch;
 
-/** API 키를 자동 주입하는 fetch 래퍼 생성 */
+/** Creates a fetch wrapper that automatically injects the API key */
 export function createFetchWithApiKey(
   apiKey: string,
   customFetch?: Fetch
@@ -373,14 +373,14 @@ export function createFetchWithApiKey(
   };
 }
 
-/** JSON 응답 파싱 + 에러 처리 */
+/** Parses JSON response and handles errors */
 export async function parseResponse<T>(
   response: Response
 ): Promise<FortemResponse<T>> {
   const body = await response.json();
 
   if (!response.ok) {
-    // 401 응답은 FortemAuthError로 구체화 (잘못된 API 키 포함)
+    // Specialize 401 responses as FortemAuthError (includes invalid API key)
     if (response.status === 401) {
       throw new FortemAuthError(
         body.message ?? body.error ?? "Authentication failed"
@@ -426,16 +426,16 @@ export class FortemClient {
     this._networkConfig = NETWORK_CONFIGS[network];
     this._fetch = createFetchWithApiKey(options.apiKey, options.fetch);
 
-    // 서브 모듈 초기화
+    // Initialize sub-modules
     this.auth = new FortemAuth(this._networkConfig.apiBaseUrl, this._fetch);
   }
 
-  /** 현재 네트워크의 API base URL */
+  /** API base URL for the current network */
   get apiBaseUrl(): string {
     return this._networkConfig.apiBaseUrl;
   }
 
-  /** 현재 네트워크의 서비스 URL */
+  /** Service URL for the current network */
   get serviceUrl(): string {
     return this._networkConfig.serviceUrl;
   }
@@ -449,7 +449,7 @@ export class FortemClient {
 import { FortemClient } from "./client";
 import type { FortemClientOptions } from "./types";
 
-/** FortemClient 인스턴스 생성 팩토리 함수 */
+/** Factory function to create a FortemClient instance */
 export function createFortemClient(
   options: FortemClientOptions
 ): FortemClient {
@@ -507,9 +507,9 @@ export class FortemAuth {
   private _accessToken: string | null = null;
   private _expiresAt: number | null = null;
 
-  /** Access token 유효 기간 마진 (30초 전에 만료 처리) */
+  /** Expiry margin — treat token as expired 30s before actual expiration */
   private static readonly TOKEN_EXPIRY_MARGIN_MS = 30_000;
-  /** Access token TTL (5분) */
+  /** Access token TTL (5 minutes) */
   private static readonly TOKEN_TTL_MS = 5 * 60 * 1000;
 
   constructor(
@@ -518,11 +518,11 @@ export class FortemAuth {
   ) {}
 
   /**
-   * Step 1: Nonce 발급
+   * Step 1: Request a nonce
    *
-   * ForTem API에서 인증용 nonce를 발급받는다.
+   * Requests an authentication nonce from the ForTem API.
    *
-   * @returns nonce 문자열
+   * @returns An object containing the nonce string
    */
   async getNonce(): Promise<{ nonce: string }> {
     const response = await this._fetch(
@@ -535,13 +535,13 @@ export class FortemAuth {
   }
 
   /**
-   * Step 2: Access Token 발급
+   * Step 2: Obtain an access token
    *
-   * nonce를 사용하여 access token을 획득한다.
-   * 획득한 토큰은 내부에 캐싱된다.
+   * Exchanges a nonce for an access token.
+   * The acquired token is cached internally.
    *
-   * @param nonce - getNonce()에서 받은 nonce
-   * @returns accessToken 문자열
+   * @param nonce - The nonce obtained from getNonce()
+   * @returns An object containing the accessToken string
    */
   async getAccessToken(nonce: string): Promise<{ accessToken: string }> {
     if (!nonce) {
@@ -559,7 +559,7 @@ export class FortemAuth {
     const result = await parseResponse<AccessTokenResponse>(response);
     const { accessToken } = result.data;
 
-    // 내부 캐싱
+    // Cache internally
     this._accessToken = accessToken;
     this._expiresAt = Date.now() + FortemAuth.TOKEN_TTL_MS;
 
@@ -567,10 +567,10 @@ export class FortemAuth {
   }
 
   /**
-   * 캐싱된 access token 반환
+   * Returns the cached access token.
    *
-   * 토큰이 없거나 만료된 경우 null 반환.
-   * 만료 30초 전부터 만료로 간주 (마진 적용).
+   * Returns null if no token is cached or if it has expired.
+   * Treats the token as expired 30 seconds before actual expiration (margin applied).
    */
   getToken(): string | null {
     if (!this._accessToken || !this._expiresAt) {
@@ -587,10 +587,10 @@ export class FortemAuth {
   }
 
   /**
-   * 유효한 access token을 반환 (필요 시 자동 재발급)
+   * Returns a valid access token, auto-refreshing if necessary.
    *
-   * 캐싱된 토큰이 유효하면 그대로 반환.
-   * 만료되었으면 nonce → access token 2단계를 자동 실행.
+   * Returns the cached token if still valid.
+   * If expired, automatically executes the nonce → access token two-step flow.
    */
   async getValidToken(): Promise<string> {
     const cached = this.getToken();
@@ -601,7 +601,7 @@ export class FortemAuth {
     return accessToken;
   }
 
-  /** 캐싱된 토큰 초기화 */
+  /** Clears the cached token */
   clearToken(): void {
     this._accessToken = null;
     this._expiresAt = null;
@@ -752,7 +752,7 @@ describe("FortemAuth", () => {
       const client = createFortemClient({ apiKey: "test-key", fetch: mockFetch });
       await client.auth.getAccessToken("nonce");
 
-      // 시간을 5분 + 1초 후로 이동
+      // Advance time by 5 minutes + 1 second
       vi.useFakeTimers();
       vi.advanceTimersByTime(5 * 60 * 1000 + 1000);
 
@@ -773,23 +773,23 @@ describe("FortemAuth", () => {
       const token = await client.auth.getValidToken();
 
       expect(token).toBe("valid-token");
-      // fetch는 getAccessToken에서 1번만 호출됨 (getValidToken에서 추가 호출 없음)
+      // fetch called only once in getAccessToken (no additional call from getValidToken)
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
     it("should auto-refresh when token expired", async () => {
       const mockFetch = createMockFetch([
-        // 첫 번째 getAccessToken
+        // First getAccessToken call
         { status: 200, body: { statusCode: 200, data: { accessToken: "old-token" } } },
-        // getValidToken → getNonce
+        // getValidToken → getNonce (auto-refresh)
         { status: 200, body: { statusCode: 200, data: { nonce: "new-nonce" } } },
-        // getValidToken → getAccessToken
+        // getValidToken → getAccessToken (auto-refresh)
         { status: 200, body: { statusCode: 200, data: { accessToken: "new-token" } } },
       ]);
       const client = createFortemClient({ apiKey: "test-key", fetch: mockFetch });
       await client.auth.getAccessToken("nonce");
 
-      // 토큰 만료 시뮬레이션
+      // Simulate token expiration
       client.auth.clearToken();
 
       const token = await client.auth.getValidToken();
