@@ -9,6 +9,7 @@ tags: [research, codebase, supabase-storage, characters, weapons, asset-manageme
 status: complete
 last_updated: 2026-02-17
 last_updated_by: arta1069
+last_updated_note: "무기 Atlas vs 개별 이미지 통일 — 로비도 인게임과 동일한 프레임명 기반으로 통일"
 ---
 
 # 연구: Supabase Storage 기반 에셋 관리 시스템 - DB 스키마 재설계
@@ -201,10 +202,12 @@ game-assets/  (public bucket)
 │   ├── atlas/
 │   │   ├── tanks_default.png    (아틀라스 이미지)
 │   │   └── tanks_default.xml    (아틀라스 데이터)
-│   └── thumbnails/
-│       ├── bazooka.png          (로비 썸네일)
-│       ├── grenade.png
-│       └── shotgun.png
+│   └── frames/                  (아틀라스 프레임과 동일 이름의 개별 PNG)
+│       ├── tank_bullet1.png     (bazooka 투사체 = atlas 프레임명)
+│       ├── tank_bullet2.png     (shotgun 투사체)
+│       ├── tank_bullet3.png     (grenade 투사체)
+│       ├── tanks_turret1.png    (shotgun 들기)
+│       └── tanks_turret2.png    (bazooka 들기)
 └── sounds/
     └── fortress-bgm.ogg.mp3    (향후 확장)
 ```
@@ -246,22 +249,25 @@ hold_sprite TEXT                          -- "tanks_turret2.png" (atlas 프레�
 
 **변경 후:**
 ```sql
-thumbnail_path TEXT NOT NULL   -- Storage 내 썸네일 경로 (로비용)
 atlas_key TEXT NOT NULL DEFAULT 'tanks'  -- Phaser 런타임 텍스처 키 (변경 없음)
 atlas_path TEXT NOT NULL DEFAULT 'weapons/atlas/tanks_default'  -- Storage 내 아틀라스 경로 (.png/.xml)
-projectile_frame TEXT          -- 아틀라스 내 투사체 프레임명 (변경 없음)
-hold_frame TEXT                -- 아틀라스 내 들기 프레임명 (변경 없음)
+projectile_frame TEXT          -- 아틀라스 내 투사체 프레임명
+hold_frame TEXT                -- 아틀라스 내 들기 프레임명
 ```
 
+> **설계 결정**: `thumbnail_path` 없음 — 로비와 인게임 모두 동일한 `hold_frame`/`projectile_frame` 값을 사용.
+> Storage의 `weapons/frames/` 디렉토리에 아틀라스 프레임과 **동일한 파일명**의 개별 PNG를 배치하여,
+> 로비는 `${STORAGE_URL}/weapons/frames/${hold_frame ?? projectile_frame}`으로 이미지를 표시한다.
+
 **데이터 매핑:**
-| id | thumbnail_path | atlas_key | atlas_path | projectile_frame | hold_frame |
-|---|---|---|---|---|---|
-| bazooka | weapons/thumbnails/bazooka.png | tanks | weapons/atlas/tanks_default | tank_bullet1.png | tanks_turret2.png |
-| grenade | weapons/thumbnails/grenade.png | tanks | weapons/atlas/tanks_default | tank_bullet3.png | tank_bullet3.png |
-| shotgun | weapons/thumbnails/shotgun.png | tanks | weapons/atlas/tanks_default | tank_bullet2.png | tanks_turret1.png |
+| id | atlas_key | atlas_path | projectile_frame | hold_frame |
+|---|---|---|---|---|
+| bazooka | tanks | weapons/atlas/tanks_default | tank_bullet1.png | tanks_turret2.png |
+| grenade | tanks | weapons/atlas/tanks_default | tank_bullet3.png | tank_bullet3.png |
+| shotgun | tanks | weapons/atlas/tanks_default | tank_bullet2.png | tanks_turret1.png |
 
 **경로 조합 패턴:**
-- 로비 썸네일: `${STORAGE_URL}/${thumbnail_path}`
+- 로비 이미지: `${STORAGE_URL}/weapons/frames/${hold_frame ?? projectile_frame}` (프레임명으로 URL 도출)
 - 아틀라스 로딩: `${STORAGE_URL}/${atlas_path}.png` + `${STORAGE_URL}/${atlas_path}.xml`
 - 인게임 프레임 참조: `atlas_key` + `projectile_frame` / `hold_frame` (기존과 동일)
 
@@ -313,14 +319,14 @@ export interface WeaponData {
   explosion_radius: number
   ammo: number
   mass: number
-  thumbnail_path: string          // Storage 내 썸네일 경로
   atlas_key: string               // Phaser 텍스처 키
   atlas_path: string              // Storage 내 아틀라스 경로
-  projectile_frame: string | null // 아틀라스 내 프레임명
-  hold_frame: string | null       // 아틀라스 내 프레임명
+  projectile_frame: string | null // 아틀라스 내 프레임명 (인게임 + 로비 공용)
+  hold_frame: string | null       // 아틀라스 내 프레임명 (인게임 + 로비 공용)
   sort_order: number
 }
 ```
+> **thumbnail_path 불필요**: 로비는 `hold_frame ?? projectile_frame` 값으로 Storage URL을 도출한다.
 
 ### 영향받는 코드 파일
 
@@ -392,10 +398,11 @@ export function getStorageUrl(path: string): string {
   └─ [게임] BootScene (DB 데이터) → ${STORAGE_URL}/${sprite_path}/${sprite_prefix}_{pose}.png
        → Phaser textures → Character.ts (동일)
 
-[DB] weapons.thumbnail_path/atlas_key/atlas_path/projectile_frame/hold_frame
-  ├─ [로비] LobbyWeaponSelector → ${STORAGE_URL}/${thumbnail_path}
+[DB] weapons.atlas_key/atlas_path/projectile_frame/hold_frame
+  ├─ [로비] LobbyWeaponSelector → ${STORAGE_URL}/weapons/frames/${hold_frame ?? projectile_frame}
   └─ [게임] BootScene (DB 데이터) → ${STORAGE_URL}/${atlas_path}.png/.xml
        → Phaser textures → 기존과 동일 (atlas_key + frame명)
+  ※ 로비와 인게임 모두 동일한 hold_frame/projectile_frame 컬럼을 참조 (통일)
 ```
 
 ### 주요 설계 결정사항
@@ -404,7 +411,7 @@ export function getStorageUrl(path: string): string {
 
 2. **아틀라스 구조 유지**: 무기 인게임 렌더링은 기존 atlas 방식 유지. `atlas_key`로 Phaser 텍스처 키, `atlas_path`로 Storage 위치, `projectile_frame`/`hold_frame`으로 프레임명 참조.
 
-3. **로비 썸네일 분리**: 캐릭터/무기 모두 `thumbnail_path` 컬럼으로 로비용 이미지를 명시적으로 지정. 인게임 에셋과 독립적으로 관리 가능.
+3. **무기 로비/인게임 참조 통일**: 무기는 별도 `thumbnail_path` 없이 `hold_frame`/`projectile_frame` 값을 인게임과 로비 모두에서 사용. Storage의 `weapons/frames/` 디렉토리에 아틀라스 프레임과 동일한 이름의 개별 PNG를 배치하여, 로비가 프레임명에서 URL을 도출. 캐릭터는 `thumbnail_path`로 로비 이미지를 별도 지정.
 
 4. **BootScene 동적화**: 하드코딩된 CHARACTERS 배열 제거. GameOptions를 통해 전달된 DB 데이터로 동적 로딩.
 
@@ -417,8 +424,28 @@ export function getStorageUrl(path: string): string {
 
 1. **BootScene 동적 로딩 범위**: 현재 BootScene은 모든 캐릭터 에셋을 미리 로딩. Storage 전환 후에도 전체 로딩할지, 매치에 참여하는 캐릭터만 로딩할지 결정 필요.
 
-2. **무기 썸네일 이미지 소스**: 현재 로비는 atlas의 개별 PNG를 사용. Storage용 전용 썸네일을 별도 제작할지, 기존 이미지를 그대로 업로드할지 결정 필요.
+2. ~~**무기 썸네일 이미지 소스**~~ → **해결됨**: 로비도 인게임과 동일한 프레임명(`hold_frame`/`projectile_frame`)을 기반으로 Storage URL을 도출. `weapons/frames/` 디렉토리에 아틀라스 프레임과 동일 파일명의 개별 PNG를 배치.
 
 3. **배경/사운드 에셋 포함 범위**: 이번 재설계에 배경 이미지와 사운드도 Storage로 이전할지, 캐릭터/무기만 우선 처리할지 결정 필요.
 
 4. **에셋 업로드 자동화**: Storage bucket에 파일을 업로드하는 마이그레이션 스크립트 또는 수동 업로드 절차 필요.
+
+## 후속 연구 (2026-02-17)
+
+### 무기 Atlas vs 개별 이미지 통일 결정
+
+**결정**: 로비도 인게임 방식으로 통일한다.
+
+**배경**: 기존에는 인게임은 `tanks` 아틀라스에서 프레임명으로 참조하고, 로비는 `PNG/Default size/` 하위의 개별 PNG 파일을 직접 참조하는 이중 구조였다. 이를 통일하여 **DB의 `hold_frame`/`projectile_frame` 컬럼 하나로** 인게임과 로비 모두를 커버한다.
+
+**구현 방식**:
+- Storage에 `weapons/frames/` 디렉토리를 만들고, 아틀라스의 각 프레임과 **동일한 파일명**의 개별 PNG를 업로드
+- 로비: `${STORAGE_URL}/weapons/frames/${weapon.hold_frame ?? weapon.projectile_frame}`
+- 인게임: `atlas_key` + `hold_frame`/`projectile_frame` (기존 Phaser atlas 방식 유지)
+- 무기 테이블에 별도 `thumbnail_path` 컬럼이 불필요해짐
+
+**장점**:
+- 단일 참조: 프레임명 하나로 로비/인게임 모두 동작
+- 컬럼 수 감소: `thumbnail_path` 불필요
+- 일관성: 로비에서 보이는 이미지와 인게임 이미지가 항상 동일
+- Storage 구조 단순화: `thumbnails/` 디렉토리 불필요
