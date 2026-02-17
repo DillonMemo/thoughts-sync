@@ -2,12 +2,12 @@
 
 ## 개요
 
-ForTem 서비스 접근용 범용 JavaScript/TypeScript SDK(`@fortemlabs/sdk-js`)를 별도 리포지토리(`~/workspace/games/fortem-sdk-web/`)에 생성한다. Supabase JS SDK의 **Factory + Facade** 패턴을 참조하여 `createFortemClient()` 팩토리 함수 + `FortemClient` 클래스 + `client.auth` 서브 모듈 구조로 설계한다. 1단계는 **패키지 기반 완성도**(ESM + CJS dual format, 타입 선언, npm 배포 준비)와 **인증 플로우**(nonce → access-token)에 집중한다.
+ForTem 서비스 접근용 범용 JavaScript/TypeScript SDK(`@fortemlabs/sdk-js`)를 별도 리포지토리(`~/workspace/games/sdk-js/`)에 생성한다. Supabase JS SDK의 **Factory + Facade** 패턴을 참조하여 `createFortemClient()` 팩토리 함수 + `FortemClient` 클래스 + `client.auth` 서브 모듈 구조로 설계한다. 1단계는 **패키지 기반 완성도**(ESM + CJS dual format, 타입 선언, npm 배포 준비)와 **인증 플로우**(nonce → access-token)에 집중한다.
 
 ## 현재 상태 분석
 
-- `~/workspace/games/fortem-sdk-web/` 디렉토리: **존재하지 않음** (처음부터 생성)
-- GitHub 리포: `https://github.com/ForTemLabs/fortem-sdk-web.git` — **이미 존재**
+- `~/workspace/games/sdk-js/` 디렉토리: **존재하지 않음** (처음부터 생성)
+- GitHub 리포: `https://github.com/ForTemLabs/sdk-js.git` — **이미 존재**
 - 참조 모델: `@repo/game-core` — tsup `^8.3.0`, TypeScript `^5.7.0`, vitest `^2.1.0` 기반 ESM 빌드
 - ForTem API 인증 플로우: `POST /api/v1/developers/auth/nonce` (x-api-key) → `POST /api/v1/developers/auth/access-token` (x-api-key + nonce body)
 - whoosh-bang의 nonce → verify 패턴(`WalletLinkButton.tsx:55-83`): 유사 구조 참조 가능
@@ -73,8 +73,8 @@ GitHub 리포를 clone하고, pnpm으로 패키지를 초기화한 뒤, tsup/Typ
 
 ```bash
 cd ~/workspace/games
-git clone https://github.com/ForTemLabs/fortem-sdk-web.git
-cd fortem-sdk-web
+git clone https://github.com/ForTemLabs/sdk-js.git
+cd sdk-js
 ```
 
 #### 2. package.json 생성
@@ -132,7 +132,7 @@ cd fortem-sdk-web
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ForTemLabs/fortem-sdk-web.git"
+    "url": "https://github.com/ForTemLabs/sdk-js.git"
   },
   "devDependencies": {
     "tsup": "^8.3.0",
@@ -949,7 +949,7 @@ MIT 라이선스 전문 (ForTem Labs, 2026)
 
 #### 수동 검증:
 - [ ] README의 코드 예시가 실제 API와 일치하는지 확인
-- [ ] whoosh-bang에서 `pnpm install ../fortem-sdk-web/fortemlabs-sdk-js-0.0.1.tgz`로 로컬 설치 테스트
+- [ ] whoosh-bang에서 `pnpm install ../sdk-js/fortemlabs-sdk-js-0.0.1.tgz`로 로컬 설치 테스트
 - [ ] whoosh-bang에서 `import { createFortemClient } from '@fortemlabs/sdk-js'` 타입 에러 없이 동작
 
 **Implementation Note**: 이 단계를 완료하고 모든 자동화된 검증이 통과한 후, 다음 단계로 진행하기 전에 수동 테스트가 성공했다는 사람의 확인을 위해 여기서 일시 중지합니다.
