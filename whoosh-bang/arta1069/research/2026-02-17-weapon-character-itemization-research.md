@@ -9,6 +9,7 @@ tags: [research, codebase, weapons, characters, inventory, database, lobby, item
 status: complete
 last_updated: 2026-02-17
 last_updated_by: arta1069
+last_updated_note: "미해결 질문 논의 결과 및 ForTem 연동 설계 결정 사항 추가"
 ---
 
 # 연구: 무기와 캐릭터 아이템화 - 현재 시스템 분석
@@ -315,10 +316,53 @@ DB 기반 소유/선택 레이어가 전혀 없다.
 - `thoughts/arta1069/research/2026-02-13-character-skin-nft-system-research.md` - 캐릭터 NFT 시스템 (가장 직접적으로 관련)
 - `thoughts/arta1069/plans/2026-02-13-character-skin-selection-system.md` - 캐릭터 선택 시스템 계획 (인벤토리 패턴의 원본)
 
-## 미해결 질문
+## 논의 결과 (2026-02-17)
 
-1. **무기 마스터 데이터 위치**: DB `weapons` 테이블로 옮길 때 `WeaponStats`의 게임플레이 속성(damage, explosionRadius, mass 등)도 DB에 저장할 것인지, 아니면 게임 코드에 유지하고 DB에는 메타데이터(이름, 설명, 에셋 경로)만 저장할 것인지
-2. **무기 선택 시점**: 로비에서 최대 3개 무기를 선택하면 인게임 `WeaponSelector` UI는 선택된 3개만 표시하도록 변경해야 하는지, 현재 전체 표시 UI를 유지할 것인지
-3. **무기 에셋**: 현재 모든 무기가 `tanks` 아틀라스 하나를 공유하는데, 새 무기 추가 시 별도 에셋 로딩이 필요할 수 있음
-4. **기본 무기 부여 시점**: 캐릭터처럼 `handle_new_user` 트리거에서 기본 무기(바주카)를 자동 부여할 것인지
-5. **ForTem SDK 통합**: `character_inventory.source`에 "fortem" 값이 이미 정의되어 있어, 무기 인벤토리에도 동일한 source 체계를 적용할 수 있음
+### 1. 무기 마스터 데이터 위치 → DB에 게임플레이 속성 포함
+
+**결정**: `weapons` 테이블에 게임플레이 속성(damage, explosionRadius, mass 등)을 모두 저장한다.
+
+**근거**: ForTem NFT의 `attributes`는 범용 key-value 컨테이너로, 게임별 장르에 맞게 자유롭게 구성 가능하다. ForTem에는 식별용 정보만 넣고, 게임플레이 속성은 우리 DB가 권한을 갖는 B 방식을 채택한다.
+
+**ForTem attributes 설계**:
+```json
+// weapon
+"attributes": [
+  { "name": "type", "value": "weapon" },
+  { "name": "weapon_id", "value": "bazooka_v1" },
+  { "name": "weapon_name", "value": "bazooka" }
+]
+// character
+"attributes": [
+  { "name": "type", "value": "character" },
+  { "name": "character_id", "value": "adventurer_v1" },
+  { "name": "character_name", "value": "adventurer" }
+]
+```
+
+- `type`: "weapon" 또는 "character" → import 시 어떤 테이블을 조회할지 결정
+- `_id`: 버전 포함 식별자 → 우리 DB 매핑 키
+- `_name`: 표시용 이름
+
+**장점**: 밸런스 패치 시 NFT 수정 없이 DB만 업데이트하면 된다.
+
+### 2. 무기 선택 UI → 캐릭터와 동일하게 전체 표시
+
+로비에서 보유 무기 전체를 표시하고, 보유/미보유를 시각적으로 구분한다 (캐릭터 선택 UI와 동일한 패턴). 선택 가능한 무기는 최대 3개.
+
+### 3. 무기 에셋 → 별도 에셋 추가 가능성 있음
+
+현재 모든 무기가 `tanks` 아틀라스를 공유하지만, 새 무기 추가 시 별도 에셋 로딩이 필요할 수 있다.
+
+### 4. 기본 무기 → bazooka
+
+캐릭터의 "player"처럼 무기는 "bazooka"가 기본이다. `handle_new_user` 트리거에서 자동 부여.
+
+### 5. source 컬럼 → 캐릭터와 동일하게 유지
+
+`weapon_inventory.source`에도 `character_inventory.source`와 동일한 체계를 적용한다:
+- `"default"`: 회원가입 시 자동 지급
+- `"fortem"`: ForTem NFT 마켓에서 Redeem Code로 import
+- `"reward"`: 인게임 보상으로 획득 (추후 확장용)
+
+추후 필요 없으면 제거 가능.
