@@ -186,7 +186,7 @@ https://[project_id].supabase.co/storage/v1/object/public/[bucket]/[path]
 ### Storage Bucket 구조
 
 ```
-game-assets/  (public bucket)
+whoosh-bang-assets/  (public bucket)
 ├── characters/
 │   ├── player/
 │   │   ├── player_idle.png
@@ -365,7 +365,7 @@ export interface WeaponData {
 
 ```typescript
 // apps/web/src/lib/storage.ts (신규)
-const STORAGE_URL = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/game-assets`
+const STORAGE_URL = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/whoosh-bang-assets`
 
 export function getStorageUrl(path: string): string {
   return `${STORAGE_URL}/${path}`
@@ -518,11 +518,11 @@ export function getStorageUrl(path: string): string {
 
 **결정**: `scripts/migrate-assets-to-storage.ts` 스크립트로 자동화.
 
-**스크립트 역할**: 로컬 `public/assets/` 디렉토리의 파일을 Supabase Storage `game-assets` bucket에 업로드.
+**스크립트 역할**: 로컬 `public/assets/` 디렉토리의 파일을 Supabase Storage `whoosh-bang-assets` bucket에 업로드.
 
 **실행 흐름**:
 ```
-1. game-assets public bucket 생성 (없으면)
+1. whoosh-bang-assets public bucket 생성 (없으면)
 2. 카테고리별 업로드:
    ├─ characters/  → characters/{id}/{prefix}_{pose}.png
    ├─ weapons/atlas/ → weapons/atlas/tanks_default.png/.xml
@@ -540,7 +540,7 @@ import * as fs from "fs"
 import * as path from "path"
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
-const BUCKET = "game-assets"
+const BUCKET = "whoosh-bang-assets"
 const ASSETS_DIR = "apps/web/public/assets"
 
 async function main() {
