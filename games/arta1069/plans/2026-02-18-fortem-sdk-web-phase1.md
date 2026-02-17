@@ -269,7 +269,7 @@ export type FortemNetwork = "testnet" | "mainnet";
 export interface FortemClientOptions {
   /** ForTem 개발자 API 키 */
   apiKey: string;
-  /** 네트워크 환경 (기본값: 'testnet') */
+  /** 네트워크 환경 (기본값: 'mainnet') */
   network?: FortemNetwork;
   /** 커스텀 fetch 함수 (테스트용) */
   fetch?: typeof globalThis.fetch;
@@ -315,7 +315,7 @@ export const NETWORK_CONFIGS: Record<FortemNetwork, NetworkConfig> = {
   },
 };
 
-export const DEFAULT_NETWORK: FortemNetwork = "testnet";
+export const DEFAULT_NETWORK: FortemNetwork = "mainnet";
 ```
 
 #### 3. 커스텀 에러 클래스
@@ -349,7 +349,7 @@ export class FortemAuthError extends FortemError {
 Supabase의 `fetchWithAuth` 패턴을 참조하여, `x-api-key` 헤더를 자동 주입하는 fetch 래퍼를 구현한다.
 
 ```typescript
-import { FortemError } from "./errors";
+import { FortemError, FortemAuthError } from "./errors";
 import type { FortemResponse } from "./types";
 
 export type Fetch = typeof globalThis.fetch;
@@ -380,6 +380,13 @@ export async function parseResponse<T>(
   const body = await response.json();
 
   if (!response.ok) {
+    // 401 응답은 FortemAuthError로 구체화 (잘못된 API 키 포함)
+    if (response.status === 401) {
+      throw new FortemAuthError(
+        body.message ?? body.error ?? "Authentication failed"
+      );
+    }
+
     throw new FortemError(
       body.message ?? body.error ?? `Request failed with status ${response.status}`,
       response.status,
@@ -407,8 +414,12 @@ export class FortemClient {
   private readonly _networkConfig: NetworkConfig;
 
   constructor(options: FortemClientOptions) {
-    if (!options.apiKey) {
+    if (!options.apiKey || typeof options.apiKey !== "string") {
       throw new Error("apiKey is required");
+    }
+
+    if (options.apiKey.trim().length === 0) {
+      throw new Error("apiKey cannot be empty");
     }
 
     const network = options.network ?? DEFAULT_NETWORK;
@@ -612,7 +623,8 @@ export class FortemAuth {
   - `getValidToken()`: 캐싱 유효 시 fetch 호출 없이 반환 확인
   - `getValidToken()`: 캐싱 만료 시 nonce + accessToken 2단계 자동 실행 확인
   - `clearToken()`: 토큰 초기화 확인
-  - API 에러 응답 시 `FortemError` throw 확인
+  - API 401 응답 시 `FortemAuthError` throw 확인 (잘못된 API 키 시나리오)
+  - API 기타 에러 응답 시 `FortemError` throw 확인
 
 #### 수동 검증:
 - [ ] 실제 ForTem testnet API로 `getNonce()` 호출 성공 (API 키 필요)
@@ -677,11 +689,21 @@ describe("FortemAuth", () => {
       expect(headers.get("x-api-key")).toBe("my-api-key");
     });
 
-    it("should throw FortemError on API error", async () => {
+    it("should throw FortemAuthError on 401 (invalid API key)", async () => {
       const mockFetch = createMockFetch([
         { status: 401, body: { statusCode: 401, message: "Invalid API key" } },
       ]);
       const client = createFortemClient({ apiKey: "bad-key", fetch: mockFetch });
+
+      await expect(client.auth.getNonce()).rejects.toThrow(FortemAuthError);
+      await expect(client.auth.getNonce()).rejects.toThrow("Invalid API key");
+    });
+
+    it("should throw FortemError on other API errors", async () => {
+      const mockFetch = createMockFetch([
+        { status: 500, body: { statusCode: 500, message: "Internal Server Error" } },
+      ]);
+      const client = createFortemClient({ apiKey: "test-key", fetch: mockFetch });
 
       await expect(client.auth.getNonce()).rejects.toThrow(FortemError);
     });
@@ -800,23 +822,27 @@ import { describe, it, expect } from "vitest";
 import { createFortemClient, FortemClient } from "../index";
 
 describe("FortemClient", () => {
-  it("should create client with default network (testnet)", () => {
+  it("should create client with default network (mainnet)", () => {
     const client = createFortemClient({ apiKey: "test-key" });
 
     expect(client).toBeInstanceOf(FortemClient);
-    expect(client.apiBaseUrl).toBe("https://testnet-api.fortem.gg");
-    expect(client.serviceUrl).toBe("https://testnet.fortem.gg");
-  });
-
-  it("should create client with mainnet", () => {
-    const client = createFortemClient({ apiKey: "test-key", network: "mainnet" });
-
     expect(client.apiBaseUrl).toBe("https://api.fortem.gg");
     expect(client.serviceUrl).toBe("https://fortem.gg");
   });
 
+  it("should create client with testnet", () => {
+    const client = createFortemClient({ apiKey: "test-key", network: "testnet" });
+
+    expect(client.apiBaseUrl).toBe("https://testnet-api.fortem.gg");
+    expect(client.serviceUrl).toBe("https://testnet.fortem.gg");
+  });
+
   it("should throw when apiKey is missing", () => {
     expect(() => createFortemClient({} as any)).toThrow("apiKey is required");
+  });
+
+  it("should throw when apiKey is empty string", () => {
+    expect(() => createFortemClient({ apiKey: "  " })).toThrow("apiKey cannot be empty");
   });
 
   it("should have auth sub-module", () => {
@@ -851,7 +877,7 @@ import { createFortemClient } from 'fortem-sdk-web'
 
 const fortem = createFortemClient({
   apiKey: 'your-api-key',
-  network: 'testnet', // 'testnet' | 'mainnet'
+  network: 'mainnet', // 'testnet' | 'mainnet' (default: 'mainnet')
 })
 
 // Step 1: Get nonce
@@ -873,7 +899,7 @@ Creates a new ForTem client instance.
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
 | `apiKey` | `string` | Yes | - | Your ForTem developer API key |
-| `network` | `'testnet' \| 'mainnet'` | No | `'testnet'` | Network environment |
+| `network` | `'testnet' \| 'mainnet'` | No | `'mainnet'` | Network environment |
 | `fetch` | `typeof fetch` | No | `globalThis.fetch` | Custom fetch function |
 
 ### `client.auth.getNonce()`
