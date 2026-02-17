@@ -9,7 +9,7 @@ tags: [research, codebase, supabase-storage, characters, weapons, asset-manageme
 status: complete
 last_updated: 2026-02-17
 last_updated_by: arta1069
-last_updated_note: "무기 Atlas vs 개별 이미지 통일 — 로비도 인게임과 동일한 프레임명 기반으로 통일"
+last_updated_note: "BootScene 매치 참여 캐릭터만 로딩 결정 추가"
 ---
 
 # 연구: Supabase Storage 기반 에셋 관리 시스템 - DB 스키마 재설계
@@ -422,7 +422,7 @@ export function getStorageUrl(path: string): string {
 
 ## 미해결 질문
 
-1. **BootScene 동적 로딩 범위**: 현재 BootScene은 모든 캐릭터 에셋을 미리 로딩. Storage 전환 후에도 전체 로딩할지, 매치에 참여하는 캐릭터만 로딩할지 결정 필요.
+1. ~~**BootScene 동적 로딩 범위**~~ → **해결됨**: 매치에 참여하는 캐릭터만 로딩. `game/page.tsx`에서 유저 캐릭터(검증 완료) + AI 캐릭터(서버에서 미리 결정)를 `GameOptions.characters[]`로 전달하고, BootScene은 해당 배열만 순회하여 Storage에서 로딩. 현재 AI는 `"player"` 고정(GameScene.ts:299)이므로 유저 캐릭터 + `"player"` 2개만 로딩하면 됨.
 
 2. ~~**무기 썸네일 이미지 소스**~~ → **해결됨**: 로비도 인게임과 동일한 프레임명(`hold_frame`/`projectile_frame`)을 기반으로 Storage URL을 도출. `weapons/frames/` 디렉토리에 아틀라스 프레임과 동일 파일명의 개별 PNG를 배치.
 
@@ -449,3 +449,25 @@ export function getStorageUrl(path: string): string {
 - 컬럼 수 감소: `thumbnail_path` 불필요
 - 일관성: 로비에서 보이는 이미지와 인게임 이미지가 항상 동일
 - Storage 구조 단순화: `thumbnails/` 디렉토리 불필요
+
+### BootScene 매치 참여 캐릭터만 로딩 결정
+
+**결정**: 전체 캐릭터 로딩 대신, 매치에 참여하는 캐릭터만 로딩한다.
+
+**배경**: 현재 BootScene은 하드코딩된 3개 캐릭터의 모든 포즈(36개 이미지)를 미리 로딩. Storage 전환 후에는 네트워크 요청이 되므로, 불필요한 로딩을 줄이는 것이 중요하다.
+
+**현재 AI 캐릭터 상태**: GameScene.ts:299에서 AI는 `characterType: "player"` 하드코딩. 따라서 현재는 유저 캐릭터 + "player" 최대 2개만 필요.
+
+**구현 방식**:
+- `game/page.tsx`(서버): 유저 캐릭터 + AI 캐릭터의 DB 데이터를 `GameOptions.characters[]`에 포함
+- `BootScene`: `GameOptions.characters[]` 배열을 순회하며 각 캐릭터의 `sprite_path`/`sprite_prefix`로 Storage에서 12포즈 로딩
+- 하드코딩된 `CHARACTERS` 배열 완전 제거
+
+**효과**:
+| 시나리오 | 전체 로딩 | 매치 참여만 |
+|---------|----------|-----------|
+| 캐릭터 3개 (현재) | 36개 이미지 | 24개 이미지 (유저+AI) |
+| 캐릭터 10개 (확장) | 120개 이미지 | 24개 이미지 |
+| 캐릭터 20개 (장기) | 240개 이미지 | 24개 이미지 |
+
+**확장성**: 멀티플레이어 추가 시에도 참여 플레이어 수 × 12포즈만 로딩.
