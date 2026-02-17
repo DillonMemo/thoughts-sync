@@ -698,8 +698,12 @@ describe("FortemAuth", () => {
       ]);
       const client = createFortemClient({ apiKey: "bad-key", fetch: mockFetch });
 
-      await expect(client.auth.getNonce()).rejects.toThrow(FortemAuthError);
-      await expect(client.auth.getNonce()).rejects.toThrow("Invalid API key");
+      await expect(client.auth.getNonce()).rejects.toThrow(
+        expect.objectContaining({
+          name: "FortemAuthError",
+          message: "Invalid API key",
+        })
+      );
     });
 
     it("should throw FortemError on other API errors", async () => {
