@@ -1,8 +1,8 @@
-# fortem-sdk-web 1단계 구현 계획
+# @fortemlabs/sdk-js 1단계 구현 계획
 
 ## 개요
 
-ForTem 서비스 접근용 범용 JavaScript/TypeScript SDK(`fortem-sdk-web`)를 별도 리포지토리(`~/workspace/games/fortem-sdk-web/`)에 생성한다. Supabase JS SDK의 **Factory + Facade** 패턴을 참조하여 `createFortemClient()` 팩토리 함수 + `FortemClient` 클래스 + `client.auth` 서브 모듈 구조로 설계한다. 1단계는 **패키지 기반 완성도**(ESM + CJS dual format, 타입 선언, npm 배포 준비)와 **인증 플로우**(nonce → access-token)에 집중한다.
+ForTem 서비스 접근용 범용 JavaScript/TypeScript SDK(`@fortemlabs/sdk-js`)를 별도 리포지토리(`~/workspace/games/fortem-sdk-web/`)에 생성한다. Supabase JS SDK의 **Factory + Facade** 패턴을 참조하여 `createFortemClient()` 팩토리 함수 + `FortemClient` 클래스 + `client.auth` 서브 모듈 구조로 설계한다. 1단계는 **패키지 기반 완성도**(ESM + CJS dual format, 타입 선언, npm 배포 준비)와 **인증 플로우**(nonce → access-token)에 집중한다.
 
 ## 현재 상태 분석
 
@@ -23,7 +23,7 @@ ForTem 서비스 접근용 범용 JavaScript/TypeScript SDK(`fortem-sdk-web`)를
 1단계 완료 후:
 
 ```typescript
-import { createFortemClient } from 'fortem-sdk-web'
+import { createFortemClient } from '@fortemlabs/sdk-js'
 
 const fortem = createFortemClient({
   apiKey: 'your-api-key',
@@ -39,7 +39,7 @@ const { accessToken } = await fortem.auth.getAccessToken(nonce)
 ```
 
 검증:
-- `pnpm install fortem-sdk-web`으로 whoosh-bang에서 설치 가능
+- `pnpm install @fortemlabs/sdk-js`으로 whoosh-bang에서 설치 가능
 - ESM (`import`) + CJS (`require`) 모두 동작
 - TypeScript 타입 자동완성 완전 지원
 - `fortem.auth.getNonce()` → nonce 반환
@@ -82,9 +82,12 @@ cd fortem-sdk-web
 
 ```json
 {
-  "name": "fortem-sdk-web",
+  "name": "@fortemlabs/sdk-js",
   "version": "0.0.1",
   "description": "ForTem SDK for JavaScript/TypeScript — NFT marketplace API client",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.cts",
@@ -478,7 +481,7 @@ export type {
 - [ ] `createFortemClient({ apiKey: 'test' })` 인스턴스 생성 시 에러 없음
 - [ ] `createFortemClient({} as any)` 호출 시 `"apiKey is required"` 에러 throw
 - [ ] `fortem.auth` 프로퍼티 접근 가능 (`FortemAuth` 인스턴스)
-- [ ] 모든 public 타입이 `fortem-sdk-web`에서 import 가능
+- [ ] 모든 public 타입이 `@fortemlabs/sdk-js`에서 import 가능
 
 #### 수동 검증:
 - [ ] TypeScript IDE에서 `createFortemClient()` 호출 시 옵션 자동완성 확인
@@ -856,24 +859,24 @@ describe("FortemClient", () => {
 **파일**: `README.md`
 
 ```markdown
-# fortem-sdk-web
+# @fortemlabs/sdk-js
 
 ForTem SDK for JavaScript/TypeScript — NFT marketplace API client for the Sui blockchain.
 
 ## Installation
 
 ```bash
-npm install fortem-sdk-web
+npm install @fortemlabs/sdk-js
 # or
-pnpm install fortem-sdk-web
+pnpm install @fortemlabs/sdk-js
 # or
-yarn add fortem-sdk-web
+yarn add @fortemlabs/sdk-js
 ```
 
 ## Quick Start
 
 ```typescript
-import { createFortemClient } from 'fortem-sdk-web'
+import { createFortemClient } from '@fortemlabs/sdk-js'
 
 const fortem = createFortemClient({
   apiKey: 'your-api-key',
@@ -946,8 +949,8 @@ MIT 라이선스 전문 (ForTem Labs, 2026)
 
 #### 수동 검증:
 - [ ] README의 코드 예시가 실제 API와 일치하는지 확인
-- [ ] whoosh-bang에서 `pnpm install ../fortem-sdk-web/fortem-sdk-web-0.0.1.tgz`로 로컬 설치 테스트
-- [ ] whoosh-bang에서 `import { createFortemClient } from 'fortem-sdk-web'` 타입 에러 없이 동작
+- [ ] whoosh-bang에서 `pnpm install ../fortem-sdk-web/fortemlabs-sdk-js-0.0.1.tgz`로 로컬 설치 테스트
+- [ ] whoosh-bang에서 `import { createFortemClient } from '@fortemlabs/sdk-js'` 타입 에러 없이 동작
 
 **Implementation Note**: 이 단계를 완료하고 모든 자동화된 검증이 통과한 후, 다음 단계로 진행하기 전에 수동 테스트가 성공했다는 사람의 확인을 위해 여기서 일시 중지합니다.
 
