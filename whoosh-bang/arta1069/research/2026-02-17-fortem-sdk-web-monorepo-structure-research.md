@@ -304,9 +304,9 @@ Response: `{ "statusCode": 200, "data": { "accessToken": "eyJhbGci..." } }`
 ## 미해결 질문
 
 1. ~~**패키지 배포 범위**: `fortem-sdk-web`은 npm 공개 배포인가, 아니면 모노레포 내부 전용인가?~~ → **해결**: 별도 리포지토리(`ForTemLabs/fortem-sdk-web`)에서 npm 공개 배포
-2. **CJS 지원**: `@repo/game-core`는 ESM 전용이지만, `fortem-sdk-web`은 범용 npm 패키지이므로 ESM + CJS dual format이 필요할 가능성이 높다.
-3. **ForTem API 전체 스펙**: 2단계(유저 조회, 콜렉션 CRUD, 아이템 CRUD)의 상세 API 스펙이 추가로 필요하다.
-4. **Access Token 관리 전략**: 5분 TTL + 민팅 시 1회성이라는 특성을 고려할 때, SDK 레벨에서 토큰 캐싱/자동 갱신 전략을 어떻게 설계할 것인가?
+2. ~~**CJS 지원**: `@repo/game-core`는 ESM 전용이지만, `fortem-sdk-web`은 범용 npm 패키지이므로 ESM + CJS dual format이 필요할 가능성이 높다.~~ → **해결**: ForTem 서비스 접근을 위한 범용 SDK이므로 ESM + CJS dual format 확정. tsup `format: ["esm", "cjs"]`로 처리.
+3. ~~**ForTem API 전체 스펙**: 2단계(유저 조회, 콜렉션 CRUD, 아이템 CRUD)의 상세 API 스펙이 추가로 필요하다.~~ → **보류**: 1단계에서는 해당 없음. 2단계 API들은 1단계에서 확립된 패턴 위에 메서드를 추가하는 확장 작업이므로, 2단계 시작 시 스펙 제공받으면 충분.
+4. ~~**Access Token 관리 전략**: 5분 TTL + 민팅 시 1회성이라는 특성을 고려할 때, SDK 레벨에서 토큰 캐싱/자동 갱신 전략을 어떻게 설계할 것인가?~~ → **해결**: SDK 내부 캐싱(`token` + `expiresAt`) + API 401 응답 시 자동 재발급 이중 구조. 민팅 시 1회성 토큰 소모 전략은 2단계에서 설계.
 
 ## 후속 연구 2026-02-17T13:35:00Z
 
