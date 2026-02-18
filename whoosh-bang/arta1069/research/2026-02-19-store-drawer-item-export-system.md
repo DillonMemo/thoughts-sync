@@ -9,7 +9,7 @@ tags: [research, codebase, store, drawer, fortem-sdk, item-export, inventory, wa
 status: complete
 last_updated: "2026-02-19"
 last_updated_by: arta1069
-last_updated_note: "ForTem users.verify 검증 플로우 추가, 인벤토리 테이블 network 컬럼 반영"
+last_updated_note: "미해결 질문 4건 논의 완료 → 설계 결정 사항으로 반영"
 ---
 
 # 연구: Store Drawer UI 및 아이템 내보내기(export) 시스템
@@ -302,7 +302,7 @@ StoreButton 클릭
               └── "아이템 내보내기" 버튼 → 2중 Drawer (NestedRoot)
                     → 보유 아이템 선택 (기본 캐릭터/무기 제외)
                     → 단일 선택 → Export 버튼
-                    → fortem.items.create(98, params) → 인벤토리 제거
+                    → fortem.items.create(98, params) → redeem_code UPDATE
 ```
 
 ### 인벤토리 소유권 흐름
@@ -362,9 +362,38 @@ import { Drawer as DrawerPrimitive } from "vaul"
 - `thoughts/arta1069/research/2026-02-17-fortem-sdk-web-monorepo-structure-research.md`
 - `thoughts/arta1069/research/2026-02-13-character-skin-nft-system-research.md`
 
-## 미해결 질문
+## 설계 결정 사항 (논의 완료)
 
-1. `item.create`의 `redeemCode` 필드에 어떤 값을 매핑해야 하는지 (아이템 id? UUID?)
-2. `item.create` 완료 후 인벤토리 제거는 클라이언트에서 직접 Supabase DELETE를 할지, 별도 API 라우트를 만들지
-3. `CreateItemParams.recipientAddress`에 현재 연결된 지갑 주소를 넣을지, 별도 수령 주소를 받을지
-4. export 후 `selected_character`나 `selected_weapons`가 해당 아이템을 참조하고 있으면 어떻게 처리할지 (fallback으로 기본 아이템 재설정?)
+### 1. `redeemCode` 생성 방식
+- `XXXX-XXXX-XXXX` 형태의 12자리 영대문자+숫자 코드를 export 시점에 생성
+- `crypto.getRandomValues()`로 생성 (별도 라이브러리 불필요)
+- 36개 문자셋 × 12자리 = ~4.7 × 10^18 조합 (충돌 가능성 사실상 없음)
+```ts
+function generateRedeemCode(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(12))
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+  const code = Array.from(bytes, (b) => chars[b % chars.length]).join("")
+  return `${code.slice(0, 4)}-${code.slice(4, 8)}-${code.slice(8, 12)}`
+}
+```
+
+### 2. 인벤토리 처리 방식 (DELETE → UPDATE 전환)
+- 인벤토리 레코드를 DELETE하지 않고, `redeem_code` 컬럼을 추가하여 상태 구분
+- 두 인벤토리 테이블에 `redeem_code TEXT DEFAULT NULL` 컬럼 추가 (마이그레이션 필요)
+- `redeem_code IS NULL` → 인게임 사용 중 아이템
+- `redeem_code IS NOT NULL` → ForTem에 export된 아이템
+- 장점: 이력 보존, 향후 import(되돌리기) 가능, 데이터 유실 위험 없음
+- 로비 인벤토리 조회 시 `WHERE redeem_code IS NULL` 조건 추가 필요
+- `item.create` + `UPDATE redeem_code` + `UPDATE player_profiles`를 원자적으로 처리하기 위해 **API 라우트** 사용
+
+### 3. `recipientAddress` 값
+- `linkedWallet.wallet_address`를 그대로 사용
+- 게임에 연결한 지갑 주소와 ForTem verify 응답의 `walletAddress`는 동일
+- 별도 수령 주소 입력 UI 불필요
+
+### 4. export 시 선택 아이템 처리
+- export된 아이템이 현재 `selected_character` 또는 `selected_weapons`에 포함되어 있으면:
+  - **무기**: `selected_weapons` 배열에서 export된 무기만 제거, 나머지 유지. 결과가 빈 배열이면 `['bazooka']`로 fallback
+  - **캐릭터**: `selected_character`가 export된 캐릭터이면 `'player'`로 fallback
+- 기본 아이템(`"player"`, `"bazooka"`)은 export 대상에서 제외되므로 항상 fallback 가능
+- 이 로직은 export API 라우트에서 `redeem_code` UPDATE와 함께 `player_profiles` UPDATE로 처리
