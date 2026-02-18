@@ -9,6 +9,7 @@ tags: [research, codebase, store, drawer, fortem-sdk, item-export, inventory, wa
 status: complete
 last_updated: "2026-02-19"
 last_updated_by: arta1069
+last_updated_note: "ForTem users.verify 검증 플로우 추가, 인벤토리 테이블 network 컬럼 반영"
 ---
 
 # 연구: Store Drawer UI 및 아이템 내보내기(export) 시스템
@@ -30,7 +31,7 @@ Store 버튼을 통한 Drawer UI 구현과 Fortem SDK를 활용한 아이템 내
 
 ## 요약
 
-현재 `StoreButton` 컴포넌트는 지갑이 연결된 경우 Drawer를 열지만 내부 콘텐츠는 "Coming soon..." 플레이스홀더만 있다. 인벤토리 시스템은 `character_inventory`와 `weapon_inventory` 테이블로 관리되며, 기본 캐릭터(`"player"`)와 기본 무기(`"bazooka"`)는 하드코딩된 문자열로 식별된다. Fortem SDK(`@fortemlabs/sdk-js@0.0.2`)는 패키지에 설치되어 있고 환경변수도 설정되어 있으나, 이전 테스트 코드가 롤백되어 현재 소스에서는 사용되지 않는다. vaul 라이브러리는 `Drawer.NestedRoot`를 통해 2중 Drawer를 공식 지원한다.
+현재 `StoreButton` 컴포넌트는 지갑이 연결된 경우 Drawer를 열지만 내부 콘텐츠는 "Coming soon..." 플레이스홀더만 있다. Store Drawer를 열 때 `fortem.users.verify(walletAddress)`를 호출하여 ForTem 가입 여부를 먼저 확인해야 한다. `isUser`가 `false`이면 ForTem 미가입 안내 + `https://fortem.gg` 링크 버튼을 노출하고, `true`이면 'Store 바로가기'와 '아이템 내보내기' 버튼을 보여준다. 인벤토리 시스템은 `character_inventory`와 `weapon_inventory` 테이블로 관리되며, 두 테이블 모두 `network` 컬럼(`TEXT NOT NULL DEFAULT 'mainnet'`)을 가진다. 기본 캐릭터(`"player"`)와 기본 무기(`"bazooka"`)는 하드코딩된 문자열로 식별된다. Fortem SDK(`@fortemlabs/sdk-js@0.0.2`)는 패키지에 설치되어 있고 환경변수도 설정되어 있으나, 이전 테스트 코드가 롤백되어 현재 소스에서는 사용되지 않는다. vaul 라이브러리는 `Drawer.NestedRoot`를 통해 2중 Drawer를 공식 지원한다.
 
 ## 상세 발견 사항
 
@@ -87,6 +88,7 @@ vaul 라이브러리(`DrawerPrimitive`)를 래핑한 shadcn/ui Drawer 컴포넌�
 | `character_id` | TEXT | `characters(id)` FK |
 | `acquired_at` | TIMESTAMPTZ | 획득 시각 |
 | `source` | TEXT | `"default"` / `"fortem"` / `"reward"` |
+| `network` | TEXT NOT NULL | 블록체인 네트워크 (기본값: `'mainnet'`) |
 
 **`weapon_inventory`**:
 | 컬럼 | 타입 | 설명 |
@@ -96,6 +98,7 @@ vaul 라이브러리(`DrawerPrimitive`)를 래핑한 shadcn/ui Drawer 컴포넌�
 | `weapon_id` | TEXT | `weapons(id)` FK |
 | `acquired_at` | TIMESTAMPTZ | 획득 시각 |
 | `source` | TEXT | `"default"` / `"fortem"` / `"reward"` |
+| `network` | TEXT NOT NULL | 블록체인 네트워크 (기본값: `'mainnet'`) |
 
 #### 소유권 데이터 흐름
 
@@ -165,11 +168,48 @@ export interface WeaponData {
 | 클래스/메서드 | 설명 |
 |---|---|
 | `createFortemClient({ apiKey, network })` | FortemClient 인스턴스 생성 |
+| `client.users.verify(walletAddress)` | ForTem 가입 여부 확인 |
 | `client.items.create(collectionId, params)` | 아이템 생성 (NFT 민팅) |
 | `client.items.get(collectionId, code)` | 아이템 조회 |
 | `client.items.uploadImage(collectionId, file)` | 이미지 업로드 |
 | `client.auth.getToken()` | 인증 토큰 발급 |
-| `client.users.verify(walletAddress)` | 유저 지갑 검증 |
+
+#### `users.verify()` 상세 (ForTem 가입 여부 확인)
+
+**시그니처** (`index.d.ts:163`):
+```ts
+verify(walletAddress: string): Promise<FortemResponse<UserResponse>>
+```
+
+**`UserResponse` 타입** (`index.d.ts:31-36`):
+```ts
+interface UserResponse {
+  isUser: boolean        // ForTem에 가입한 유저인지 여부
+  nickname: string       // ForTem 닉네임
+  profileImage: string   // ForTem 프로필 이미지
+  walletAddress: string  // 조회한 지갑 주소
+}
+```
+
+**`FortemResponse<T>` 타입** (`index.d.ts:13-16`):
+```ts
+interface FortemResponse<T> {
+  statusCode: number
+  data: T
+}
+```
+
+**사용 예시:**
+```ts
+const result = await fortem.users.verify(walletAddress)
+// result.data.isUser → boolean (ForTem 가입 여부)
+// result.data.nickname → string
+// result.data.walletAddress → string
+```
+
+**Store Drawer 분기 로직:**
+- `isUser === false` → ForTem 미가입 안내 UI + `https://fortem.gg` 링크 이동 버튼
+- `isUser === true` → 'Store 바로가기' 버튼 + '아이템 내보내기' 버튼
 
 **`CreateItemParams` 타입:**
 ```ts
@@ -251,11 +291,18 @@ interface Item {
 
 ## 아키텍처 문서화
 
-### 현재 Store 흐름
+### 목표 Store 흐름
 ```
 StoreButton 클릭
-  ├── linkedWallet 있음 → showStoreDrawer(true) → Drawer("Coming soon...")
-  └── linkedWallet 없음 → WalletSelectDialog → 지갑 연결 → onWalletLinked + showStoreDrawer(true)
+  ├── linkedWallet 없음 → WalletSelectDialog → 지갑 연결 → onWalletLinked + Drawer 열기
+  └── linkedWallet 있음 → Drawer 열기 → fortem.users.verify(walletAddress)
+        ├── isUser === false → ForTem 미가입 안내 + "ForTem 가입하기" 버튼 (https://fortem.gg)
+        └── isUser === true → Store 메뉴 Drawer
+              ├── "Store 바로가기" 버튼 → console.info (추후 링크 이동)
+              └── "아이템 내보내기" 버튼 → 2중 Drawer (NestedRoot)
+                    → 보유 아이템 선택 (기본 캐릭터/무기 제외)
+                    → 단일 선택 → Export 버튼
+                    → fortem.items.create(98, params) → 인벤토리 제거
 ```
 
 ### 인벤토리 소유권 흐름
