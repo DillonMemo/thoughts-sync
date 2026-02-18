@@ -2,7 +2,7 @@
 
 ## 개요
 
-`@fortemlabs/sdk-js` v0.0.2 — Users, Collections, Items API 서브모듈을 추가하고, Bearer 토큰 자동 주입 + 402 재시도 인프라를 구축한다. 1단계에서 완성된 `createFortemClient()` → `FortemClient` → `FortemAuth` 패턴을 그대로 확장한다.
+`@fortemlabs/sdk-js` v0.0.2 — Users, Collections, Items API 서브모듈을 추가하고, Bearer 토큰 자동 주입 + 403 재시도 인프라를 구축한다. 1단계에서 완성된 `createFortemClient()` → `FortemClient` → `FortemAuth` 패턴을 그대로 확장한다.
 
 ## 현재 상태 분석
 
@@ -18,7 +18,7 @@ v0.0.1은 인증(nonce → access-token) 플로우만 구현된 상태:
 - Bearer 토큰 자동 주입 fetch 래퍼가 존재하지 않음 → 2단계에서 구현 필요
 - `FortemAuth.getValidToken()`이 이미 자동 갱신 지원 → Bearer 래퍼에서 활용 가능
 - 이미지 업로드(`PUT multipart/form-data`)는 기존 `Content-Type: application/json` 기본값과 충돌 → `FormData` 사용 시 `Content-Type` 제거 필요
-- 민팅(POST) 시 토큰이 소모되며, 서버는 401(인증 에러)과 402(토큰 소모/만료)를 상태 코드로 구분
+- 민팅(POST) 시 토큰이 소모되며, 서버는 401(인증 에러)과 403(토큰 소모/만료)를 상태 코드로 구분
 - mock fetch 패턴(`createMockFetch`)이 `src/__tests__/auth.test.ts:8-19`에 정의 → 새 테스트에서 재사용 가능
 
 ## 원하는 최종 상태
@@ -59,7 +59,7 @@ createFortemClient(options)
 
 Bearer 토큰 전략은 이중 안전망:
 1. **선제 처리**: 민팅 성공 후 `clearToken()` 자동 호출 → 다음 요청에서 자연스럽게 새 토큰 발급
-2. **안전망**: 모든 authenticated 요청에서 402 응답 시 토큰 재발급 + 1회 재시도
+2. **안전망**: 모든 authenticated 요청에서 403 응답 시 토큰 재발급 + 1회 재시도
 
 ---
 
@@ -72,13 +72,13 @@ Bearer 토큰 전략은 이중 안전망:
 
 #### 1. 에러 클래스 추가
 **파일**: `src/errors.ts`
-**변경**: `FortemTokenExpiredError` 추가 (402 전용)
+**변경**: `FortemTokenExpiredError` 추가 (403 전용)
 
 ```typescript
-/** Token expired/consumed error (402) */
+/** Token expired/consumed error (403) */
 export class FortemTokenExpiredError extends FortemError {
   constructor(message: string = "Access token expired or consumed") {
-    super(message, 402, "TOKEN_EXPIRED");
+    super(message, 403, "TOKEN_EXPIRED");
     this.name = "FortemTokenExpiredError";
   }
 }
@@ -89,13 +89,13 @@ export class FortemTokenExpiredError extends FortemError {
 **변경**: 토큰 소모 상태 코드 상수 추가
 
 ```typescript
-/** HTTP status code indicating token expired/consumed (may change to 403 in the future) */
-export const TOKEN_EXPIRED_STATUS = 402;
+/** HTTP status code indicating token expired/consumed */
+export const TOKEN_EXPIRED_STATUS = 403;
 ```
 
-#### 3. parseResponse 402 처리 추가
+#### 3. parseResponse 403 처리 추가
 **파일**: `src/fetch.ts`
-**변경**: 401 분기 아래에 402 → `FortemTokenExpiredError` 분기 추가
+**변경**: 401 분기 아래에 403 → `FortemTokenExpiredError` 분기 추가
 
 ```typescript
 import { FortemError, FortemAuthError, FortemTokenExpiredError } from "./errors";
@@ -211,7 +211,7 @@ export interface ImageUploadResponse {
 ## 2단계: Authenticated Fetch 래퍼
 
 ### 개요
-`FortemClient`에서 Bearer 토큰을 자동 주입하고, 402 응답 시 토큰 재발급 + 1회 재시도하는 래퍼를 생성한다. 이 래퍼를 2단계 서브모듈들에 전달한다.
+`FortemClient`에서 Bearer 토큰을 자동 주입하고, 403 응답 시 토큰 재발급 + 1회 재시도하는 래퍼를 생성한다. 이 래퍼를 2단계 서브모듈들에 전달한다.
 
 ### 필요한 변경:
 
@@ -227,7 +227,7 @@ import { FortemTokenExpiredError } from "./errors";
 /**
  * Creates a fetch wrapper that:
  * 1. Injects Authorization: Bearer <token> header via auth.getValidToken()
- * 2. On 402 response: clears token, re-fetches new token, retries once
+ * 2. On 403 response: clears token, re-fetches new token, retries once
  */
 private _createAuthenticatedFetch(): Fetch {
   return async (input, init) => {
@@ -237,7 +237,7 @@ private _createAuthenticatedFetch(): Fetch {
 
     const response = await this._fetch(input, { ...init, headers });
 
-    // 402: token expired/consumed → retry once with fresh token
+    // 403: token expired/consumed → retry once with fresh token
     if (response.status === TOKEN_EXPIRED_STATUS) {
       this.auth.clearToken();
       const newToken = await this.auth.getValidToken();
@@ -266,12 +266,12 @@ this._authenticatedFetch = this._createAuthenticatedFetch();
 
 #### 3. Authenticated Fetch 테스트
 **파일**: `src/__tests__/client.test.ts`
-**변경**: authenticated fetch의 Bearer 주입 및 402 재시도 동작을 검증하는 테스트 추가.
+**변경**: authenticated fetch의 Bearer 주입 및 403 재시도 동작을 검증하는 테스트 추가.
 
 테스트 항목:
 - authenticated fetch가 Bearer 토큰 헤더를 주입하는지
-- 402 응답 시 토큰 재발급 후 1회 재시도하는지
-- 재시도 후에도 402면 그대로 반환하는지 (무한 재시도 방지)
+- 403 응답 시 토큰 재발급 후 1회 재시도하는지
+- 재시도 후에도 403이면 그대로 반환하는지 (무한 재시도 방지)
 - 401 응답은 재시도 없이 그대로 반환하는지
 
 > 참고: `_authenticatedFetch`는 private이므로, 서브모듈(`users`, `collections`, `items`)을 통해 간접 테스트하거나, 서브모듈 구현 전에는 `FortemClient`를 상속한 테스트용 클래스로 접근할 수 있다. 3~5단계에서 서브모듈 테스트를 통해 자연스럽게 검증된다.
@@ -343,7 +343,7 @@ this.users = new FortemUsers(this._networkConfig.apiBaseUrl, this._authenticated
 - 올바른 엔드포인트(`/api/v1/developers/users/:addr`)로 GET 요청
 - Authorization Bearer 헤더 포함 검증
 - 404 응답 시 `FortemError` throw
-- 402 응답 시 토큰 재발급 후 재시도 (authenticated fetch 통합 검증)
+- 403 응답 시 토큰 재발급 후 재시도 (authenticated fetch 통합 검증)
 
 ### 성공 기준:
 
@@ -684,14 +684,14 @@ export function createMockFetch(responses: Array<{ status: number; body: unknown
 ## 테스트 전략
 
 ### 단위 테스트:
-- **users.test.ts**: verify() 성공/실패, Bearer 헤더 주입, 402 재시도
+- **users.test.ts**: verify() 성공/실패, Bearer 헤더 주입, 403 재시도
 - **collections.test.ts**: list() 성공, create() 성공 + 토큰 무효화, Bearer 헤더
 - **items.test.ts**: get() 성공, create() 성공 + 토큰 무효화, uploadImage() FormData 처리
 - **client.test.ts**: 서브모듈 존재 확인 (users, collections, items)
 - **auth.test.ts**: 기존 12개 테스트 유지 (변경 없음)
 
 ### 핵심 엣지 케이스:
-- 402 재시도 후에도 실패 → `FortemTokenExpiredError` throw (무한 재시도 방지)
+- 403 재시도 후에도 실패 → `FortemTokenExpiredError` throw (무한 재시도 방지)
 - `uploadImage()`에서 `Content-Type`이 `application/json`으로 설정되지 않음
 - 민팅 후 다음 요청에서 `getValidToken()`이 새 토큰을 발급하는지
 
@@ -708,7 +708,7 @@ sdk-js/src/
 ├── users.ts          # FortemUsers (신규)
 ├── collections.ts    # FortemCollections (신규)
 ├── items.ts          # FortemItems (신규)
-├── fetch.ts          # fetch 래퍼 + parseResponse (402 처리 + FormData 지원)
+├── fetch.ts          # fetch 래퍼 + parseResponse (403 처리 + FormData 지원)
 ├── types.ts          # 타입 정의 (확장)
 ├── errors.ts         # 에러 클래스 (FortemTokenExpiredError 추가)
 ├── constants.ts      # 네트워크 설정 + TOKEN_EXPIRED_STATUS
