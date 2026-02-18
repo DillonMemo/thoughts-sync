@@ -9,6 +9,7 @@ tags: [research, codebase, sdk-js, fortem, users-api, collections-api, items-api
 status: complete
 last_updated: 2026-02-18
 last_updated_by: arta1069
+last_updated_note: "미해결 질문 해소 — 서브모듈 접근 패턴, 이미지 업로드 편의 메서드 결정"
 ---
 
 # 연구: sdk-js 2단계 고도화를 위한 현재 상태 분석 및 API 모듈 확장 연구
@@ -242,13 +243,13 @@ createFortemClient(options)
       ├── auth: FortemAuth (기존)
       ├── users: FortemUsers ← NEW
       │   └── verify(walletAddress) — GET /users/:walletAddress
-      ├── collections: FortemCollections ← NEW
+      ├── collections: FortemCollections ← NEW (플랫 패턴)
       │   ├── list() — GET /collections
       │   └── create(params) — POST /collections
-      └── items: FortemItems ← NEW
+      └── items: FortemItems ← NEW (플랫 패턴)
           ├── get(collectionId, code) — GET /collections/:id/items/:code
           ├── create(collectionId, params) — POST /collections/:id/items
-          └── uploadImage(collectionId, file) — PUT multipart/form-data
+          └── uploadImage(collectionId, file) — PUT multipart/form-data (Blob/File만 수용)
 ```
 
 ### Bearer 토큰 주입 전략
@@ -273,8 +274,76 @@ createFortemClient(options)
 
 - `thoughts/arta1069/research/2026-02-17-fortem-sdk-web-monorepo-structure-research.md` — 1단계 코드베이스 연구
 
+## 후속 연구 2026-02-18T14:40:00+0900
+
+### 민팅 시 1회성 토큰 소모 전략 분석
+
+1단계 연구(`2026-02-17-fortem-sdk-web-monorepo-structure-research.md:288`)에서 확인된 access token 특성:
+- **유효시간**: 5분 TTL
+- **1회성**: 민팅(생성) API 호출 시 토큰이 소모되며 재사용 불가
+
+#### 실제 사용 흐름 분석
+
+```
+유저 조회 (GET)      → 토큰 A ✓  (소모 안 됨)
+콜렉션 조회 (GET)    → 토큰 A ✓  (소모 안 됨)
+아이템 조회 (GET)    → 토큰 A ✓  (소모 안 됨)
+아이템 민팅 (POST)   → 토큰 A ✓  (소모됨 → 토큰 A 무효화)
+─────────────────────────────────────────────
+민팅 아이템 조회 (GET) → 토큰 A ✗ (401) → 토큰 B 재발급 필요
+```
+
+#### 현재 `getValidToken()` 한계
+
+현재 구현(`src/auth.ts:94-101`)은 **TTL 기반 만료만 체크**한다:
+```typescript
+async getValidToken(): Promise<string> {
+  const cached = this.getToken();  // TTL 체크만 수행
+  if (cached) return cached;       // TTL 남아있으면 소모된 토큰도 반환
+  // ...
+}
+```
+
+민팅 후 TTL이 아직 남아있으면 **이미 소모된 토큰을 유효하다고 판단**하는 문제가 있다.
+
+#### API별 토큰 소모 분류
+
+| API | Method | 토큰 소모 |
+|-----|--------|----------|
+| 유저 검증 | `GET /users/:addr` | 소모 안 됨 (읽기) |
+| 컬렉션 목록 | `GET /collections` | 소모 안 됨 (읽기) |
+| 컬렉션 생성 | `POST /collections` | **소모됨 (민팅)** |
+| 아이템 조회 | `GET /collections/:id/items/:code` | 소모 안 됨 (읽기) |
+| 아이템 생성 | `POST /collections/:id/items` | **소모됨 (민팅)** |
+| 이미지 업로드 | `PUT /collections/:id/items/image-upload` | 소모 안 됨 |
+
+#### Bearer 래퍼 설계 시 고려사항
+
+민팅 후 토큰 무효화를 처리하기 위한 전략 옵션:
+
+**옵션 A: 401 응답 시 자동 재발급 + 재시도**
+- 민팅 후 다음 요청이 401을 받으면 자동으로 nonce → access-token 재발급 후 재시도
+- 장점: 사용자가 토큰 관리를 전혀 신경 쓸 필요 없음
+- 단점: 민팅 API 자체가 401을 받았을 때(잘못된 토큰 vs 소모된 토큰) 구분 어려움
+- 주의: 무한 재시도 방지를 위해 1회만 재시도해야 함
+
+**옵션 B: 민팅 API 호출 후 내부 캐시 즉시 무효화**
+- `POST /collections`, `POST /items` 호출 성공 시 `clearToken()` 자동 실행
+- 장점: 다음 `getValidToken()` 호출 시 자연스럽게 새 토큰 발급
+- 단점: SDK가 어떤 API가 토큰을 소모하는지 하드코딩해야 함
+
+**옵션 C: A + B 결합 (가장 견고)**
+- 민팅 API 성공 시 캐시 무효화 (B) + 예상치 못한 401에도 자동 재발급 (A)
+- 장점: 이중 안전장치
+- 단점: 구현 복잡도 증가
+
+## 결정 사항
+
+1. ~~**Items 서브모듈의 접근 패턴**~~ → **해결**: 플랫 패턴 채택. `fortem.items.create(collectionId, params)`, `fortem.collections.create(params)` 각각 독립 모듈로 접근.
+2. ~~**Bearer 토큰 401 재시도**~~ → 위 후속 연구에서 옵션 A/B/C로 분석 완료. `/create_plan`에서 결정 예정.
+3. ~~**이미지 업로드의 Node.js 호환성**~~ → **해결**: 파일 시스템 편의 메서드 제공하지 않음. `Blob`/`File` 객체만 수용. 대신 타입 정의, JSDoc, 사용 예시를 명확히 제공하여 DX 확보.
+4. ~~**이미지 업로드의 토큰 소모 여부**~~ → **해결**: 소모하지 않음.
+
 ## 미해결 질문
 
-1. **Items 서브모듈의 접근 패턴**: `fortem.items.create(collectionId, params)` vs `fortem.collections.items(collectionId).create(params)` — 어느 패턴이 더 적합한가?
-2. **Bearer 토큰 401 재시도**: 401 응답 시 자동으로 토큰을 갱신하고 재시도할 것인가, 아니면 `FortemAuthError`를 throw할 것인가?
-3. **이미지 업로드의 Node.js 호환성**: `FormData`와 `Blob`/`File`은 Node.js 18+에서 지원되지만, 파일 시스템에서 직접 읽어 업로드하는 편의 메서드가 필요한가?
+1. **토큰 소모 전략 (A/B/C)**: 민팅 후 토큰 무효화 처리 전략 — `/create_plan`에서 설계 시 결정 필요.
