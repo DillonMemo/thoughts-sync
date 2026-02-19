@@ -9,7 +9,7 @@ tags: [research, codebase, import, redeem-code, fortem-sdk, inventory, ownership
 status: complete
 last_updated: "2026-02-19"
 last_updated_by: arta1069
-last_updated_note: "Import 방법론 확정: DELETE old + INSERT new 트랜잭션, CASCADE 예외 처리"
+last_updated_note: "모든 미해결 질문 확정 완료 — ForTem status 용도, 상태변경 API 없음, OTP 12자리 입력"
 ---
 
 # 연구: 아이템 Import(Redeem Code) 시스템
@@ -384,9 +384,6 @@ Export된 인벤토리 레코드는 유저 삭제 시에도 보존해야 중복 
 1. **중복 Import 방지** (확정): Import 트랜잭션에서 기존 Export 레코드를 DELETE하는 방식으로 해결. DELETE 후 동일 redeem_code가 DB에 없으므로 재Import 시도 시 레코드 미존재로 차단. Race condition은 `SELECT ... FOR UPDATE`로 방지.
 2. **소유권 이전** (확정): DELETE old + INSERT new 트랜잭션. 기존 레코드의 user_id를 변경하지 않고, 새 레코드 생성 + 구 레코드 삭제.
 3. **CASCADE 예외** (확정): BEFORE DELETE 트리거 + user_id nullable. Export 레코드만 보존하고 비Export 레코드는 CASCADE 정상 삭제.
-
-## 미해결 질문
-
-1. **ForTem `status` 값의 의미**: `"REDEEMED"` 상태는 정확히 어떤 시점에 설정되는가? 구매 완료 시점인가, 별도 Redeem 액션이 필요한가?
-2. **Import 후 ForTem 상태 변경**: Import 완료 후 ForTem 측에 상태를 업데이트하는 API가 있는가? (현재 SDK에는 `items.create`, `items.get`, `items.uploadImage`만 존재)
-3. **redeem_code의 형태 검증**: OTP Input에서 하이픈을 포함하여 입력받을 것인가, 12자리 문자만 입력받고 하이픈은 자동 삽입할 것인가?
+4. **ForTem `status` 값의 의미** (확정): `"REDEEMED"` 상태는 Import 가능 여부 검증 용도로만 사용. 별도 Redeem 액션 불필요. `status === "REDEEMED"`이면 Import 진행 가능.
+5. **Import 후 ForTem 상태 변경** (확정): ForTem 측 상태를 업데이트하는 API 없음. Import 완료 후 ForTem 쪽에는 아무 변경 없이, 우리 DB에서만 처리 (기존 Export 레코드 DELETE로 중복 방지).
+6. **redeem_code 입력 형태** (확정): OTP Input은 12자리 영숫자만 입력받음. 사용자가 `XXXX-XXXX-XXXX` 형태를 붙여넣기하면 하이픈을 자동 제거하여 12자리만 추출. API 호출 시에는 하이픈 포함된 원본 형태(`XXXX-XXXX-XXXX`)로 ForTem에 전달.
