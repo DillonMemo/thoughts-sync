@@ -9,6 +9,7 @@ tags: [research, codebase, import, redeem-code, fortem-sdk, inventory, ownership
 status: complete
 last_updated: "2026-02-19"
 last_updated_by: arta1069
+last_updated_note: "Import 방법론 확정: DELETE old + INSERT new 트랜잭션, CASCADE 예외 처리"
 ---
 
 # 연구: 아이템 Import(Redeem Code) 시스템
@@ -148,13 +149,15 @@ await admin
   .eq("id", inventoryItem.id)
 ```
 
-**Import 시 소유권 이전 핵심 사항**:
-- Export한 유저(A)의 인벤토리 레코드: `redeem_code`가 채워진 채로 유지됨 (이력 보존)
-- Import하는 유저(B): **새 레코드를 INSERT**해야 함 (A의 레코드를 UPDATE하면 안 됨)
-- 이유: A와 B는 다른 `user_id`를 가지며, 기존 레코드의 `user_id` FK를 변경하면 A의 이력이 사라짐
-- Import된 레코드의 `source`는 `'fortem'`, `redeem_code`는 `NULL` (인게임 활성 상태)
+**Import 시 소유권 이전 핵심 사항 (확정)**:
+- Import하는 유저(B): **새 레코드를 INSERT** + Export한 유저(A)의 **기존 레코드를 DELETE** (하나의 트랜잭션)
+- INSERT 레코드: `user_id=B`, `source='fortem'`, `redeem_code=NULL`, `network=FORTEM_NETWORK`
+- DELETE 대상: `redeem_code = 입력된_코드`인 기존 레코드 (`user_id` 무관, 유저 탈퇴로 NULL일 수 있음)
+- DELETE 목적: 중복 Import 방지 (동일 redeem_code로 다시 Import 시도하면 DB에 해당 레코드가 없어서 차단)
+- 트랜잭션 원자성: INSERT + DELETE가 반드시 함께 성공/실패해야 함
+- Race condition 방지: `SELECT ... FOR UPDATE`로 old 레코드를 잠근 후 처리
 
-### 6. auth.users 삭제 시 Export된 아이템의 cascade 동작
+### 6. auth.users 삭제 시 Export된 아이템의 cascade 동작 (확정)
 
 **현재 구조**:
 ```
@@ -165,15 +168,42 @@ auth.users DELETE → CASCADE →
   └── weapon_inventory 삭제 (redeem_code 유무 무관, 모두 삭제)
 ```
 
-**문제점**: 유저 A가 아이템을 Export한 후 탈퇴하면, A의 인벤토리 레코드(redeem_code가 있는 것 포함)가 모두 CASCADE 삭제됨. 그러나 이것이 **Import에 직접적 영향을 주지는 않음**:
-- Import는 기존 레코드를 참조하지 않고 **새 레코드를 INSERT**하는 방식
-- Import 검증은 ForTem API(`items.get`)의 `status === "REDEEMED"` 응답에 의존
-- 동일 `redeem_code`로 중복 Import 방지는 인벤토리 테이블이 아닌 **ForTem 서버 측에서 관리**하거나, Import API에서 별도 검증 필요
+**문제점**: Export된 레코드(`redeem_code IS NOT NULL`)가 CASCADE로 삭제되면, Import 시 중복 방지를 위한 redeem_code 검증이 불가능해짐.
 
-**고려 사항**: 동일 `redeem_code`로 중복 Import를 방지하려면:
-- 방안 1: Import 시 해당 `redeem_code`가 이미 사용되었는지 인벤토리 테이블에서 확인 (원래 Export한 유저의 레코드가 삭제되었을 수 있으므로 불완전)
-- 방안 2: 별도 `used_redeem_codes` 테이블 관리
-- 방안 3: ForTem API가 Redeem 상태를 관리하고, Import 후 status가 변경되어 재사용 불가하도록 처리 (SDK의 `status: "REDEEMED"` 활용)
+**확정 해결 방안: BEFORE DELETE 트리거 + user_id nullable**
+
+Export된 인벤토리 레코드는 유저 삭제 시에도 보존해야 함. 구현:
+1. 인벤토리 테이블의 `user_id`를 nullable로 변경
+2. `BEFORE DELETE` 트리거로 Export된 레코드의 `user_id`를 NULL로 설정 (CASCADE 대상에서 제외)
+3. 비(非)Export 레코드는 기존 CASCADE로 정상 삭제
+
+```sql
+-- user_id nullable 변경
+ALTER TABLE character_inventory ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE weapon_inventory ALTER COLUMN user_id DROP NOT NULL;
+
+-- BEFORE DELETE 트리거
+CREATE OR REPLACE FUNCTION preserve_exported_inventory()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE character_inventory SET user_id = NULL
+  WHERE user_id = OLD.id AND redeem_code IS NOT NULL;
+  UPDATE weapon_inventory SET user_id = NULL
+  WHERE user_id = OLD.id AND redeem_code IS NOT NULL;
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER preserve_exported_before_user_delete
+BEFORE DELETE ON auth.users
+FOR EACH ROW
+EXECUTE FUNCTION preserve_exported_inventory();
+```
+
+이렇게 하면:
+- Export된 레코드: `user_id = NULL`, `redeem_code = 'ABCD-EFGH-IJKL'` → 보존됨
+- 비Export 레코드: CASCADE로 정상 삭제
+- Import 시 `WHERE redeem_code = ?` (user_id 무관)로 검증 가능
 
 ### 7. Input OTP 컴포넌트 현황
 
@@ -264,7 +294,7 @@ Import의 경우 `selectedCharacter`/`selectedWeapons` 변경이 필요 없으�
 
 ## 아키텍처 문서화
 
-### Import 목표 흐름
+### Import 확정 흐름
 ```
 Import 버튼 클릭 (StoreButton.tsx)
   → Dialog 열기 (Input OTP UI)
@@ -277,24 +307,31 @@ Import 버튼 클릭 (StoreButton.tsx)
       4. status === "REDEEMED" 확인 (REDEEMED가 아니면 Import 불가)
       5. attributes에서 type/itemId 추출
       6. 해당 아이템이 마스터 테이블(characters/weapons)에 존재하는지 확인
-      7. 동일 redeem_code로 중복 Import 방지 검증
-      8. 인벤토리 테이블에 새 레코드 INSERT
-         (user_id=현재유저, character_id/weapon_id=추출값, source='fortem', redeem_code=NULL)
+      7. 중복 Import 방지: 인벤토리에서 redeem_code 존재 확인 + SELECT FOR UPDATE 잠금
+      8. 트랜잭션 내에서:
+         a. 새 레코드 INSERT (user_id=현재유저, item_id=추출값, source='fortem', redeem_code=NULL, network=FORTEM_NETWORK)
+         b. 기존 Export 레코드 DELETE (WHERE redeem_code = 입력코드, user_id 무관)
       9. 성공 응답 반환
   → Dialog 닫기
   → router.refresh() (소유 목록 갱신)
 ```
 
-### Export된 아이템의 생명주기
+### Export된 아이템의 생명주기 (확정)
 ```
 1. Export (유저 A)
    character_inventory: { user_id: A, character_id: "female", redeem_code: "ABCD-EFGH-IJKL", source: "fortem" }
 
 2. ForTem 마켓에서 유저 B가 구매 → status: "REDEEMED"
 
-3. Import (유저 B)
-   character_inventory: { user_id: B, character_id: "female", redeem_code: NULL, source: "fortem" }
-   (A의 원래 레코드는 그대로 유지 — 이력 보존)
+3. Import (유저 B) — 트랜잭션 내에서:
+   a. INSERT: { user_id: B, character_id: "female", redeem_code: NULL, source: "fortem", network: FORTEM_NETWORK }
+   b. DELETE: A의 레코드 (WHERE redeem_code = "ABCD-EFGH-IJKL")
+   → A의 Export 레코드 제거됨 (중복 Import 방지)
+   → B의 새 레코드만 존재 (인게임 활성)
+
+※ 유저 A가 탈퇴한 경우:
+   - BEFORE DELETE 트리거에 의해 A의 Export 레코드: user_id = NULL로 변경, 레코드 보존
+   - Import 시 WHERE redeem_code = ? (user_id 무관)로 정상 검증 가능
 ```
 
 ### DB CASCADE 관계 전체 구조
@@ -323,27 +360,33 @@ auth.users (루트)
 - `thoughts/arta1069/research/2026-02-19-item-architecture-multi-ownership.md`
 - `thoughts/arta1069/research/2026-02-17-weapon-character-itemization-research.md`
 
-## 검토사항 분석
+## 검토사항 분석 (확정)
 
-### 검토사항 1: 소유권 이전 (user_id 변경)
+### 검토사항 1: 소유권 이전 — DELETE old + INSERT new (확정)
 
-인벤토리 테이블의 `user_id`가 소유자를 나타낸다. Export된 아이템이 다른 유저에 의해 Import될 때:
-- 기존 레코드(Export한 유저 A)의 `user_id`를 변경하는 것이 **아닌**, 새 레코드를 INSERT하는 방식이 적절하다
-- 이유: A의 Export 이력 보존, FK 제약 일관성 유지, 트랜잭션 단순화
-- Import된 레코드: `user_id=B`, `source='fortem'`, `redeem_code=NULL`
+Import 시 소유권 이전 방식:
+- **INSERT**: 새 레코드 생성 (`user_id=B`, `source='fortem'`, `redeem_code=NULL`, `network=FORTEM_NETWORK`)
+- **DELETE**: Export한 유저(A)의 기존 레코드 제거 (`WHERE redeem_code = 입력코드`, user_id 무관)
+- **트랜잭션**: INSERT + DELETE는 하나의 트랜잭션으로 원자적 실행
+- **중복 방지**: DELETE 후 동일 redeem_code 레코드가 DB에 없으므로 재Import 차단
+- **Race condition**: `SELECT ... FOR UPDATE`로 old 레코드 잠금 후 처리
 
-### 검토사항 2: auth.users 삭제 시 Export된 아이템 보존
+### 검토사항 2: auth.users 삭제 시 Export된 아이템 보존 (확정)
 
-현재 `ON DELETE CASCADE` 설정으로 인해 유저 삭제 시 모든 인벤토리 레코드가 삭제된다. 그러나:
-- **Import에는 영향 없음**: Import는 ForTem API의 `items.get` 응답으로 검증하며, 원래 Export한 유저의 인벤토리 레코드를 참조하지 않음
-- **중복 Import 방지가 핵심**: 동일 `redeem_code`로 여러 번 Import되는 것을 방지해야 함
-  - Export한 유저의 레코드가 삭제되면 인벤토리 테이블에서 `redeem_code` 존재 여부로 검증 불가
-  - 대안: Import API에서 인벤토리 테이블 전체(`WHERE redeem_code = ?`, user_id 무관)를 검색하여 이미 누군가 Import했는지 확인
-  - 또는: Import 시 인벤토리에 `redeem_code`를 함께 기록하여 추적 가능하게 함
+Export된 인벤토리 레코드는 유저 삭제 시에도 보존해야 중복 Import 방지가 동작함:
+- **구현**: `BEFORE DELETE` 트리거 + `user_id` nullable
+- **동작**: 유저 삭제 시 Export 레코드(`redeem_code IS NOT NULL`)의 `user_id`를 NULL로 변경 → CASCADE 대상에서 제외
+- **Import 검증**: `WHERE redeem_code = ?` (user_id 무관)로 검색하므로 `user_id = NULL`이어도 정상 동작
+- 비Export 레코드는 기존 CASCADE로 정상 삭제
+
+## 해결된 질문
+
+1. **중복 Import 방지** (확정): Import 트랜잭션에서 기존 Export 레코드를 DELETE하는 방식으로 해결. DELETE 후 동일 redeem_code가 DB에 없으므로 재Import 시도 시 레코드 미존재로 차단. Race condition은 `SELECT ... FOR UPDATE`로 방지.
+2. **소유권 이전** (확정): DELETE old + INSERT new 트랜잭션. 기존 레코드의 user_id를 변경하지 않고, 새 레코드 생성 + 구 레코드 삭제.
+3. **CASCADE 예외** (확정): BEFORE DELETE 트리거 + user_id nullable. Export 레코드만 보존하고 비Export 레코드는 CASCADE 정상 삭제.
 
 ## 미해결 질문
 
-1. **중복 Import 방지**: 동일 `redeem_code`로 여러 번 Import하는 것을 어떻게 방지할 것인가? (인벤토리 테이블 검색 vs 별도 테이블 vs ForTem API 상태 활용)
-2. **ForTem `status` 값의 의미**: `"REDEEMED"` 상태는 정확히 어떤 시점에 설정되는가? 구매 완료 시점인가, 별도 Redeem 액션이 필요한가?
-3. **Import 후 ForTem 상태 변경**: Import 완료 후 ForTem 측에 상태를 업데이트하는 API가 있는가? (현재 SDK에는 `items.create`, `items.get`, `items.uploadImage`만 존재)
-4. **redeem_code의 형태 검증**: OTP Input에서 하이픈을 포함하여 입력받을 것인가, 12자리 문자만 입력받고 하이픈은 자동 삽입할 것인가?
+1. **ForTem `status` 값의 의미**: `"REDEEMED"` 상태는 정확히 어떤 시점에 설정되는가? 구매 완료 시점인가, 별도 Redeem 액션이 필요한가?
+2. **Import 후 ForTem 상태 변경**: Import 완료 후 ForTem 측에 상태를 업데이트하는 API가 있는가? (현재 SDK에는 `items.create`, `items.get`, `items.uploadImage`만 존재)
+3. **redeem_code의 형태 검증**: OTP Input에서 하이픈을 포함하여 입력받을 것인가, 12자리 문자만 입력받고 하이픈은 자동 삽입할 것인가?
