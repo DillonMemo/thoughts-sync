@@ -9,6 +9,7 @@ tags: [research, codebase, items, weapons, characters, inventory, architecture, 
 status: complete
 last_updated: 2026-02-19
 last_updated_by: arta1069
+last_updated_note: "UI 싱크 결정 사항 추가 - Selector UI 및 Store Drawer UI 방향"
 ---
 
 # 연구: 아이템(무기, 캐릭터) 아키텍처 - 동일 아이템 복수 보유 및 보유 수량 기반 탄약 시스템
@@ -346,6 +347,46 @@ export interface WeaponData {
 
 - `thoughts/arta1069/research/2026-02-17-fortem-sdk-web-monorepo-structure-research.md` — ForTem SDK 아키텍처 (Import 흐름 구현 시 참조 필요)
 - `thoughts/arta1069/research/2026-02-17-supabase-storage-asset-migration.md` — Supabase Storage 에셋 관리
+
+## 후속 연구 2026-02-19T03:28:16+0000
+
+### UI 싱크 결정 사항
+
+#### 1. 캐릭터 Selector UI → 변경 없음
+
+[CharacterSelector.tsx](apps/web/src/components/lobby/CharacterSelector.tsx) 현재 UI 유지.
+- 동일 캐릭터 N개 보유해도 1개 이상이면 선택 가능 표시
+- `ownedIds: Set<string>` 타입 유지 (boolean 소유 여부만 필요)
+- 보유 수량은 이 UI에서 표시하지 않음
+
+#### 2. 무기 Selector UI → 발사 가능 수 뱃지 추가
+
+[LobbyWeaponSelector.tsx](apps/web/src/components/lobby/LobbyWeaponSelector.tsx) 변경.
+- 무기 이미지 우측 상단에 보유 수량(= 최대 발사 횟수) 숫자 뱃지 추가
+- `ownedIds: Set<string>` → `ownedCounts: Map<string, number>` 로 props 타입 변경
+- 무기는 마스터 테이블 기준 고유 아이템으로 1개만 표시하되, 뱃지로 수량 표현
+
+#### 3. Store Drawer UI → 인벤토리 레코드 개별 리스팅
+
+[StoreButton.tsx](apps/web/src/components/lobby/StoreButton.tsx) 변경.
+- 동일 아이템 N개 보유 시 **N개의 개별 선택 박스**로 리스팅 (그룹핑 아님)
+- 예: Grenade 3개 → Grenade 박스 3개 각각 나열
+- 각 박스는 인벤토리 레코드의 `id`(UUID)로 식별
+- Export 시 선택된 특정 인벤토리 레코드 1개를 대상으로 처리
+
+**데이터 구조 변경:**
+
+| 위치 | 현재 | 변경 후 |
+|------|------|---------|
+| `StoreButton` props | `ownedCharacterIds: string[]` (유니크 ID 목록) | `ownedCharacterInventory: { inventoryId: string, characterId: string }[]` (인벤토리 row 목록) |
+| `StoreButton` props | `ownedWeaponIds: string[]` | `ownedWeaponInventory: { inventoryId: string, weaponId: string }[]` |
+| `selectedExportItem` state | `{ type, id, name }` | `{ type, inventoryId, itemId, name }` (inventoryId 추가) |
+| Export API 요청 | `{ itemType, itemId }` | `{ itemType, itemId, inventoryId }` (특정 레코드 지정) |
+| Export API 서버 | `itemId`로 레코드 특정 | `inventoryId`(UUID)로 레코드 특정 |
+
+**Export 후 fallback 로직 변경:**
+- 현재: export하면 해당 아이템 완전 상실 → 선택 중이면 기본값 fallback
+- 변경 후: export 후에도 동일 아이템이 1개 이상 남아있으면 fallback 불필요 → 남은 수량 확인 로직 추가
 
 ## 미해결 질문
 
