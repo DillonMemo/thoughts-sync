@@ -9,7 +9,7 @@ tags: [research, codebase, items, weapons, characters, inventory, architecture, 
 status: complete
 last_updated: 2026-02-19
 last_updated_by: arta1069
-last_updated_note: "UI 싱크 결정 사항 추가 - Selector UI 및 Store Drawer UI 방향"
+last_updated_note: "미해결 질문 모두 해결 - 탄약 공식, 기본 무기, Import 순서, 기본 아이템 복수 보유"
 ---
 
 # 연구: 아이템(무기, 캐릭터) 아키텍처 - 동일 아이템 복수 보유 및 보유 수량 기반 탄약 시스템
@@ -388,11 +388,9 @@ export interface WeaponData {
 - 현재: export하면 해당 아이템 완전 상실 → 선택 중이면 기본값 fallback
 - 변경 후: export 후에도 동일 아이템이 1개 이상 남아있으면 fallback 불필요 → 남은 수량 확인 로직 추가
 
-## 미해결 질문
+## 해결된 질문
 
-1. **무기 탄약 계산 공식**: 보유 수량 N개 → ammo=N으로 단순 매핑할 것인지, 아니면 무기별 기본 ammo × N 같은 공식을 적용할 것인지?
-   - 예: Grenade 2개 보유 → ammo=2? 아니면 기본 ammo(3) × 2 = 6?
-   - README의 예시("N개를 가지고 있다면 N발")에 따르면 보유 수량 = 최대 발사 횟수
-2. **Bazooka의 무제한 탄약 유지 여부**: Bazooka는 현재 `ammo=-1`(무제한)인데, 복수 보유 시에도 무제한을 유지할 것인지?
-3. **Import 흐름**: ForTem 마켓플레이스에서 아이템을 가져오는 Import API는 아직 미구현 상태. 복수 보유 아키텍처와 함께 Import도 구현이 필요한지?
-4. **기본 아이템 복수 보유**: 기본 아이템(`"player"`, `"bazooka"`)도 추가 획득이 가능한지?
+1. **무기 탄약 계산 공식**: 보유 수량 N개 → `ammo=N` 단순 매핑. (예: Grenade 2개 보유 → 2발)
+2. **Bazooka 무제한 탄약 유지**: 기본 무기(bazooka)는 거래 불가이므로 `ammo=-1`(무제한) 유지.
+3. **Import 흐름**: 현재 연구(복수 보유 아키텍처) 선행 후 별도 연구로 Import 구현 예정.
+4. **기본 아이템 복수 보유**: 시스템 설계상 자연스럽게 불가능. 기본 아이템은 export 차단 → 마켓에 존재 불가 → import 불가, `handle_new_user` 트리거 1회만 실행. 별도 보호 로직 불필요.
