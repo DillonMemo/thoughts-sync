@@ -9,6 +9,7 @@ tags: [research, codebase, hero-section, carousel, embla-carousel, main-page]
 status: complete
 last_updated: 2026-02-20
 last_updated_by: arta1069
+last_updated_note: "미해결 질문 해결 및 구현 요구사항 확정"
 ---
 
 # 연구: Hero Section을 Carousel 기반으로 변환
@@ -193,10 +194,35 @@ store 관련으로는 navbar 게임 상품 스토어 가드 관련 문서 2개�
 - `thoughts/arta1069/plans/2026-02-20-navbar-game-product-store-guard.md`
 - `thoughts/arta1069/research/2026-02-20-navbar-game-product-store-guard.md`
 
-## 미해결 질문
+## 미해결 질문 → 해결됨
 
-1. 두 번째 슬라이드(Store 슬라이드)의 배경 영상 파일은 아직 `public/videos/`에 존재하지 않음 - 새 영상 에셋이 필요
-2. 두 번째 슬라이드의 poster 이미지도 새로 필요할 수 있음
-3. 캐러셀 자동 전환(autoplay) 필요 여부 - Figma에서는 수동 네비게이션(화살표)만 표시
-4. 모바일 반응형에서 캐러셀 화살표 표시 여부 (현재 CarouselPrevious/Next는 `md:hidden` 등 처리 없음)
-5. CarouselDots 사용 여부 (Figma 디자인에서는 dots가 보이지 않으나, 모바일에서 필요할 수 있음)
+| # | 질문 | 해결 |
+|---|------|------|
+| 1 | Store 슬라이드 배경 영상 에셋 | `main-hero-2.mp4` (6.8MB), `main-hero-2.webm` (1.3MB) 추가 완료 (`public/videos/`) |
+| 2 | 캐러셀 자동 전환 여부 | 1슬라이드 당 6초 경과 시 자동 롤링 |
+| 3 | 모바일 화살표/Dots | 모바일에서 화살표 숨김, Dots 표시 |
+| 4 | 첫 번째 슬라이드 유지 여부 | 유지. 두 번째 슬라이드 추가: Title "Best Price, Zero Risk", Desc "Buy and sell verified game codes with confidence.", CTA "Browse Store" |
+
+## 확정된 구현 요구사항
+
+### 슬라이드 구성
+| 슬라이드 | 영상 | 타이틀 | 설명 | CTA | 링크 |
+|---------|------|--------|------|-----|------|
+| 1 (기존) | `main-hero.webm/mp4` | "Get Ready to Play for Real" | "Discover and collect items for your game" | "Browse Items" | `/items` |
+| 2 (신규) | `main-hero-2.webm/mp4` | "Best Price, Zero Risk" | "Buy and sell verified game codes with confidence." | "Browse Store" | `/store` |
+
+### 캐러셀 동작
+- **자동 롤링**: 6초 간격
+- **loop**: 마지막 → 첫 번째 순환
+- **데스크톱**: 좌우 화살표(CarouselPrevious/CarouselNext) 표시
+- **모바일**: 화살표 숨김, CarouselDots 표시
+
+### 필요한 신규 i18n 키
+```json
+"heroStoreTitle": "Best Price, Zero Risk",
+"heroStoreDescription": "Buy and sell verified game codes with confidence.",
+"browseStore": "Browse Store"
+```
+
+### 추가 패키지
+- `embla-carousel-autoplay` 설치 필요 (현재 `embla-carousel-auto-scroll`만 존재)
