@@ -224,5 +224,8 @@ store 관련으로는 navbar 게임 상품 스토어 가드 관련 문서 2개�
 "browseStore": "Browse Store"
 ```
 
-### 추가 패키지
-- `embla-carousel-autoplay` 설치 필요 (현재 `embla-carousel-auto-scroll`만 존재)
+### Autoplay 방식: 패턴 C (수동 autoplay)
+- `embla-carousel-autoplay` 패키지 사용하지 않음
+- `setTimeout` + `api.scrollNext()` + `remainingRef`로 수동 구현 (기존 `examples/carousel/page.tsx:223-359` 패턴 참조)
+- hover 시 일시정지, leave 시 남은 시간 이어서 재개
+- 추가 패키지 설치 불필요
