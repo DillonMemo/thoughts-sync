@@ -195,6 +195,11 @@ const handleGameProductClick = React.useCallback(
 **변경**: Game Product 서브아이템의 조건부 포함
 
 ```typescript
+// Game Product 접근 불가 UserType 목록
+const GAME_PRODUCT_EXCLUDED_USER_TYPES: UserType[] = [UserType.TRADER]
+```
+
+```typescript
 const links = React.useMemo(
   (): Links[] => [
     {
@@ -208,8 +213,8 @@ const links = React.useMemo(
           icon: <LayersPlus size={20} className="shrink-0 text-foreground" />,
           isAuthRequired: status === "unauthenticated",
         },
-        // TRADER가 아닐 때만 Game Product 포함
-        ...(session?.userType !== UserType.TRADER
+        // 제외 대상 UserType이 아닐 때만 Game Product 포함
+        ...(!GAME_PRODUCT_EXCLUDED_USER_TYPES.includes(session?.userType!)
           ? [
               {
                 label: "Game Product",
