@@ -9,6 +9,7 @@ tags: [research, codebase, navbar, store, dialog, userType, game-product]
 status: complete
 last_updated: 2026-02-20
 last_updated_by: arta1069
+last_updated_note: "미해결 질문 논의 결과 반영 및 구현 결정사항 추가"
 ---
 
 # 연구: Navbar Game Product 버튼 - Store 조건부 네비게이션
@@ -194,9 +195,59 @@ Product 엔드포인트:
 
 Session(JWT)에 store 정보가 없으므로, `GET /api/v1/stores/my` API를 호출하여 `hasStore` 여부를 확인해야 함.
 
+## 구현 결정사항 (논의 완료)
+
+### 1. Store 유무 확인 시점 → 버튼 클릭 시 API 호출
+
+페이지 로드 시 미리 조회하지 않고, Game Product 버튼 클릭 시점에 `GET /api/v1/stores/my` 호출.
+
+### 2. API 처리 → `store.module.ts` 신규 생성
+
+기존 `apps/web/modules/` 패턴(NetworkModule 상속)을 따라 `store.module.ts` 신규 생성.
+`kiosk.module.ts`의 `existsUserKiosk` 패턴과 유사하게 구현.
+
+```typescript
+// 필요한 메서드: getMyStore
+// Request: { token: Session["accessToken"] }
+// Response: MyStoreResponseDto { store: StoreResponseDto | null, hasStore: boolean }
+// 실질적으로 사용하는 필드: hasStore
+```
+
+**MyStoreResponseDto 필드 정리:**
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `hasStore` | `boolean` | 스토어 보유 여부 |
+| `store` | `StoreResponseDto \| null` | 스토어 상세 (없으면 null) |
+
+**StoreResponseDto 내부 필드:**
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `id` | `number` | PK |
+| `objectId` | `string` | Sui 온체인 Object ID |
+| `userId` | `number` | 소유자 ID |
+| `name` | `string` | 스토어명 |
+| `description` | `string?` | 설명 |
+| `status` | `StoreStatus` | ACTIVE / INACTIVE |
+| `gamesCount` | `number` | 등록된 게임 수 |
+| `totalSalesCount` | `number` | 총 판매 수 |
+| `totalRevenue` | `Decimal` | 총 매출 (현재 항상 0) |
+| `createdAt` | `Date` | 생성일 |
+| `updatedAt` | `Date` | 수정일 |
+
+### 3. `/store/game/new` 페이지 → 추후 개발
+
+Dialog의 Confirm 버튼 클릭 시 `/store/game/new`로 이동하되, 해당 페이지는 추후 개발 예정.
+
+### 4. Dialog UI → Cancel + Confirm 버튼만
+
+"Store Required" Dialog 구성:
+- **Title**: "Store Required"
+- **Description**: "You need to create a store first before registering a game product."
+- **Cancel 버튼**: Dialog 닫기
+- **Confirm 버튼**: 스토어 생성 페이지로 이동 (페이지 추후 개발)
+
 ## 미해결 질문
 
-1. Store 유무 확인 API 호출 시점: 페이지 로드 시 미리 확인? vs 버튼 클릭 시 확인?
-2. Session 타입에 store 관련 필드를 추가할지, 별도 훅으로 관리할지
-3. `/store/game/new` 페이지의 구체적인 UI/UX 요구사항
-4. "Store Required" Dialog에서 스토어 생성 페이지로의 이동 링크 포함 여부
+(모두 해소됨)
